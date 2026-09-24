@@ -6,16 +6,28 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1
 #
+# Optional DLL:
+#
+#   powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 -Dll "path\to\okkhor_tsf.dll"
 
 [CmdletBinding()]
 param(
-    [switch]$KeepDataDirSetting
+    [switch]$KeepDataDirSetting,
+
+    [string]$Dll
 )
 
 $ErrorActionPreference = 'Stop'
 
 $InstallDir = Join-Path $env:ProgramFiles 'Okkhor'
-$DllPath = Join-Path $InstallDir 'okkhor_tsf.dll'
+
+if ([string]::IsNullOrWhiteSpace($Dll)) {
+    $DllPath = Join-Path $InstallDir 'okkhor_tsf.dll'
+}
+else {
+    $DllPath = (Resolve-Path -LiteralPath $Dll -ErrorAction Stop).Path
+}
+
 $regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
 
 Write-Host ''
@@ -27,11 +39,13 @@ Write-Host ''
 # ------------------------------------------------------------
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 
 if (-not $principal.IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator
     )) {
+
     throw 'Run this script from an elevated PowerShell prompt.'
 }
 
@@ -40,7 +54,6 @@ if (-not $principal.IsInRole(
 # ------------------------------------------------------------
 
 function Get-OkkhorProcesses {
-
     $dllName = 'okkhor_tsf.dll'
 
     $output = tasklist /m $dllName 2>$null
@@ -61,7 +74,7 @@ function Get-OkkhorProcesses {
     return $result
 }
 
-$processNames =@(Get-OkkhorProcesses)
+$processNames = @(Get-OkkhorProcesses)
 
 foreach ($name in $processNames) {
 
@@ -87,7 +100,7 @@ Start-Sleep -Milliseconds 500
 # Unregister TSF
 # ------------------------------------------------------------
 
-if (Test-Path $DllPath) {
+if (Test-Path -LiteralPath $DllPath) {
 
     Write-Host ''
     Write-Host "Unregistering $DllPath..."
@@ -95,6 +108,7 @@ if (Test-Path $DllPath) {
     & $regsvr32 /u /s $DllPath
 
     if ($LASTEXITCODE -ne 0) {
+
         throw `
             "regsvr32 /u failed with exit code $LASTEXITCODE."
     }
@@ -104,7 +118,7 @@ if (Test-Path $DllPath) {
 else {
 
     Write-Host ''
-    Write-Host 'Okkhor DLL was not found.'
+    Write-Host "Okkhor DLL was not found: $DllPath"
     Write-Host 'Skipping TSF unregistration.'
 }
 
@@ -112,17 +126,29 @@ else {
 # Remove installed files
 # ------------------------------------------------------------
 
-if (Test-Path $InstallDir) {
+# Only remove the installation directory when using
+# the default installed DLL.
+
+if ([string]::IsNullOrWhiteSpace($Dll)) {
+
+    if (Test-Path -LiteralPath $InstallDir) {
+
+        Write-Host ''
+        Write-Host "Removing $InstallDir..."
+
+        Remove-Item `
+            -Path $InstallDir `
+            -Recurse `
+            -Force
+
+        Write-Host 'Installation directory removed.'
+    }
+}
+else {
 
     Write-Host ''
-    Write-Host "Removing $InstallDir..."
-
-    Remove-Item `
-        -Path $InstallDir `
-        -Recurse `
-        -Force
-
-    Write-Host 'Installation directory removed.'
+    Write-Host 'Custom DLL supplied.'
+    Write-Host 'Skipping removal of the installation directory.'
 }
 
 # ------------------------------------------------------------
@@ -147,17 +173,21 @@ if (-not $KeepDataDirSetting) {
 Write-Host ''
 Write-Host 'Restarting Windows components...'
 
-Start-Process explorer.exe
-Start-Process ctfmon.exe
+# Start-Process explorer.exe
+# Start-Process ctfmon.exe
 
 Write-Host ''
 Write-Host '=== Okkhor uninstalled successfully ==='
 Write-Host ''
+
 Write-Host 'If Windows still lists Okkhor Phonetic,'
 Write-Host 'sign out and sign back in.'
 Write-Host ''
 
-Write-Host 'Installation complete.' -ForegroundColor Green
+Write-Host 'Uninstallation complete.' -ForegroundColor Green
 Write-Host ''
+
 Write-Host 'Press any key to exit...'
+
 $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+

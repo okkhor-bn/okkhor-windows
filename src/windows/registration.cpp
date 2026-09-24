@@ -96,27 +96,36 @@ namespace okkhor_windows
 
     HRESULT RegisterProfile()
     {
-        ComPtr<ITfInputProcessorProfiles> profiles;
+        // Use ITfInputProcessorProfileMgr instead of ITfInputProcessorProfiles
+        ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
         HRESULT hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
-                                        IID_PPV_ARGS(&profiles));
-        if (FAILED(hr))
-            return hr;
-
-        hr = profiles->Register(kOkkhorTextServiceClsid);
+                                        IID_PPV_ARGS(&profile_mgr));
         if (FAILED(hr))
             return hr;
 
         const std::wstring module_path = GetModulePath();
 
-        // The icon index is 0 and the icon file is the DLL itself; with no icon
-        // resource present Windows falls back to a generic input-method icon.
-        hr = profiles->AddLanguageProfile(
-            kOkkhorTextServiceClsid, kOkkhorLangId, kOkkhorProfileGuid, kProfileDescription,
-            static_cast<ULONG>(wcslen(kProfileDescription)), module_path.c_str(),
-            static_cast<ULONG>(module_path.size()), 0);
+        // HKL 0x00000409 corresponds to standard US QWERTY keyboard layout.
+        // Specifying this as hklSubstitute ensures that any unhandled key (where *pfEaten = FALSE)
+        // falls back to the physical US QWERTY key map rather than Bijoy/Jatiya.
+        const HKL hkl_us_qwerty = reinterpret_cast<HKL>(static_cast<UINT_PTR>(kOkkhorSubstituteHkl));
+
+        hr = profile_mgr->RegisterProfile(
+            kOkkhorTextServiceClsid,
+            kOkkhorLangId, // 0x0445 (Bangla) or 0x0409 (English)
+            kOkkhorProfileGuid,
+            kProfileDescription,
+            static_cast<ULONG>(wcslen(kProfileDescription)),
+            module_path.c_str(),
+            static_cast<ULONG>(module_path.size()),
+            0,             // Icon index
+            hkl_us_qwerty, // <-- Explicit Substitute HKL (US QWERTY)
+            0,             // Flags
+            TRUE,          // Enable profile
+            0              // Reserved
+        );
         return hr;
     }
-
     HRESULT UnregisterProfile()
     {
         ComPtr<ITfInputProcessorProfiles> profiles;

@@ -18,10 +18,13 @@ namespace okkhor_windows
     // {DB2F1C82-2B00-4DCF-B81C-90CF10527D6D}
     extern const GUID kOkkhorProfileGuid;
 
+    // The substitute HKL (QWERTY) that the text service registers for its profile.
+    constexpr UINT_PTR kOkkhorSubstituteHkl = 0x00000409;
+
     // English (United States). Okkhor uses the US QWERTY keyboard as its
     // physical input basis and transliterates Latin input into Bangla.
     constexpr LANGID kOkkhorLangId =
-        MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);
+        MAKELANGID(LANG_BANGLA, SUBLANG_BANGLA_BANGLADESH);
 
     constexpr wchar_t kTextServiceDescription[] = L"Okkhor (Bangla Phonetic)";
     constexpr wchar_t kProfileDescription[] = L"Okkhor Phonetic";

@@ -408,9 +408,9 @@ else {
 # Restart Explorer
 # ---------------------------------------------------------------------------
 
-Write-Step 'Restarting Windows Explorer...'
+# Write-Step 'Restarting Windows Explorer...'
 
-Start-Process explorer.exe -WindowStyle Hidden
+# Start-Process explorer.exe -WindowStyle Hidden
 
 # ---------------------------------------------------------------------------
 # Cleanup temporary elevated installer

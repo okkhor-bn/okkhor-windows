@@ -10,6 +10,7 @@
 #include "util/log.hpp"
 #include "windows/module.hpp"
 #include "windows/unicode.hpp"
+#include "app/configuration.hpp"
 
 namespace
 {
@@ -57,42 +58,51 @@ namespace
         return result;
     }
 
-    bool VirtualKeyToLatin(WPARAM wParam, char *latin)
+    const HKL kUsQwertyHkl =
+        reinterpret_cast<HKL>(
+            static_cast<UINT_PTR>(0x00000409));
+
+    bool KeyboardKeyToLatin(
+        WPARAM wParam,
+        LPARAM lParam,
+        char *latin)
     {
         if (!latin)
             return false;
 
         *latin = '\0';
 
-        if (wParam < 'A' || wParam > 'Z')
+        BYTE keyboard_state[256] = {};
+
+        if (!::GetKeyboardState(keyboard_state))
             return false;
 
-        const bool shift =
-            (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const UINT scan_code =
+            (static_cast<UINT>(lParam) >> 16) & 0xFF;
 
-        if (shift)
-            *latin = static_cast<char>(wParam);
-        else
-            *latin = static_cast<char>(wParam - 'A' + 'a');
+        wchar_t buffer[8] = {};
+
+        const int result =
+            ::ToUnicodeEx(
+                static_cast<UINT>(wParam),
+                scan_code,
+                keyboard_state,
+                buffer,
+                ARRAYSIZE(buffer),
+                1 << 2,
+                kUsQwertyHkl);
+
+        if (result != 1)
+            return false;
+
+        // Okkhor's current Latin input buffer is byte-based.
+        // Only accept ASCII output here.
+        if (buffer[0] > 0x7F)
+            return false;
+
+        *latin = static_cast<char>(buffer[0]);
 
         return true;
-    }
-
-    bool IsLatinKey(WPARAM vk)
-    {
-        return vk >= 'A' && vk <= 'Z';
-    }
-
-    bool IsHandledKey(WPARAM vk)
-    {
-        return IsLatinKey(vk) ||
-               vk == VK_BACK ||
-               vk == VK_SPACE ||
-               vk == VK_RETURN ||
-               vk == VK_OEM_1 ||      // ;
-               vk == VK_OEM_COMMA ||  // ,
-               vk == VK_OEM_PERIOD || // .
-               vk == VK_OEM_3;        // `;
     }
 
     std::string Hex(unsigned long value)
@@ -343,7 +353,7 @@ namespace okkhor_windows
     STDMETHODIMP OkkhorTextService::OnTestKeyDown(
         ITfContext *,
         WPARAM wParam,
-        LPARAM,
+        LPARAM lParam,
         BOOL *eaten)
     {
         if (!eaten)
@@ -354,20 +364,43 @@ namespace okkhor_windows
         if (IsSystemModifierPressed())
             return S_OK;
 
-        if (IsHandledKey(wParam))
+        // Backspace is handled by Okkhor.
+        if (wParam == VK_BACK)
+        {
+            *eaten = TRUE;
+            return S_OK;
+        }
+
+        // Space / Enter are observed by Okkhor so that the
+        // composition can be committed.
+        if (wParam == VK_SPACE ||
+            wParam == VK_RETURN)
+        {
+            *eaten = TRUE;
+            return S_OK;
+        }
+
+        char latin = 0;
+
+        if (KeyboardKeyToLatin(
+                wParam,
+                lParam,
+                &latin))
         {
             *eaten = TRUE;
 
             OKKHOR_LOG_INFO(
                 "OnTestKeyDown handled vk=" +
-                Hex(static_cast<unsigned long>(wParam)));
-
-            return S_OK;
+                Hex(static_cast<unsigned long>(wParam)) +
+                " latin=" +
+                std::string(1, latin));
         }
-
-        OKKHOR_LOG_INFO(
-            "OnTestKeyDown ignored vk=" +
-            Hex(static_cast<unsigned long>(wParam)));
+        else
+        {
+            OKKHOR_LOG_INFO(
+                "OnTestKeyDown ignored vk=" +
+                Hex(static_cast<unsigned long>(wParam)));
+        }
 
         return S_OK;
     }
@@ -393,7 +426,7 @@ namespace okkhor_windows
     STDMETHODIMP OkkhorTextService::OnKeyDown(
         ITfContext *context,
         WPARAM wParam,
-        LPARAM,
+        LPARAM lParam,
         BOOL *eaten)
     {
         if (!eaten)
@@ -472,18 +505,17 @@ namespace okkhor_windows
         }
 
         // -------------------------------------------------------------------------
-        // A-Z
+        // US QWERTY character
         // -------------------------------------------------------------------------
-
         char latin = 0;
 
-        if (!VirtualKeyToLatin(
+        if (!KeyboardKeyToLatin(
                 wParam,
+                lParam,
                 &latin))
         {
             OKKHOR_LOG_INFO(
                 "OnKeyDown key not handled");
-
             return S_OK;
         }
 
@@ -551,6 +583,10 @@ namespace okkhor_windows
     {
         if (!context)
             return E_INVALIDARG;
+
+        OKKHOR_LOG_INFO(
+            "UpdateComposition: latin_buffer=[" +
+            latin_buffer_ + "]");
 
         // -------------------------------------------------------------------------
         // Core transliteration
