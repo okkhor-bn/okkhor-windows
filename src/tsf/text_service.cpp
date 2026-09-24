@@ -6,7 +6,6 @@
 #include <utility>
 #include <windows.h>
 
-#include "app/configuration.hpp"
 #include "tsf/edit_session.hpp"
 #include "util/log.hpp"
 #include "windows/module.hpp"
@@ -289,8 +288,6 @@ namespace okkhor_windows
         OKKHOR_LOG_INFO(
             "ITfKeyEventSink advised");
 
-        LoadEngine();
-
         return S_OK;
     }
 
@@ -309,10 +306,9 @@ namespace okkhor_windows
 
         composition_.Reset();
         active_context_.Reset();
+
         composition_text_.clear();
         latin_buffer_.clear();
-
-        engine_.Unload();
 
         client_id_ = TF_CLIENTID_NULL;
         activate_flags_ = 0;
@@ -324,60 +320,6 @@ namespace okkhor_windows
             OKKHOR_LOG_INFO(
                 "thread manager detached");
         }
-    }
-
-    // -----------------------------------------------------------------------------
-    // Engine
-    // -----------------------------------------------------------------------------
-
-    void OkkhorTextService::LoadEngine()
-    {
-        const std::wstring data_dir =
-            ResolveDataDirectory();
-
-        if (data_dir.empty())
-        {
-            OKKHOR_LOG_ERROR(
-                "no okkhor-core data directory found next to " +
-                WideToUtf8(GetModulePath()) +
-                "; set HKCU\\Software\\Okkhor\\DataDir or %OKKHOR_DATA%");
-
-            return;
-        }
-
-        std::string error;
-
-        if (!engine_.Load(
-                WideToUtf8(data_dir),
-                &error))
-        {
-            OKKHOR_LOG_ERROR(
-                "okkhor-core failed to load data from " +
-                WideToUtf8(data_dir) +
-                ": " +
-                error);
-
-            return;
-        }
-
-        OKKHOR_LOG_INFO(
-            "okkhor-core loaded from " +
-            WideToUtf8(data_dir));
-
-#ifdef OKKHOR_WINDOWS_LOGGING
-
-        std::string sample;
-
-        if (engine_.Transliterate(
-                "ami",
-                &sample))
-        {
-            OKKHOR_LOG_TEXT(
-                "core self-test ami",
-                sample);
-        }
-
-#endif
     }
 
     // -----------------------------------------------------------------------------
@@ -400,16 +342,13 @@ namespace okkhor_windows
         LPARAM,
         BOOL *eaten)
     {
-
-        if (IsSystemModifierPressed())
-        {
-            *eaten = FALSE;
-            return S_OK;
-        }
         if (!eaten)
             return E_INVALIDARG;
 
         *eaten = FALSE;
+
+        if (IsSystemModifierPressed())
+            return S_OK;
 
         if (IsHandledKey(wParam))
         {
@@ -453,17 +392,13 @@ namespace okkhor_windows
         LPARAM,
         BOOL *eaten)
     {
-
-        if (IsSystemModifierPressed())
-        {
-            *eaten = FALSE;
-            return S_OK;
-        }
-
         if (!eaten)
             return E_INVALIDARG;
 
         *eaten = FALSE;
+
+        if (IsSystemModifierPressed())
+            return S_OK;
 
         if (!context)
             return E_INVALIDARG;
@@ -481,23 +416,14 @@ namespace okkhor_windows
             if (latin_buffer_.empty())
                 return S_OK;
 
-            std::size_t new_length = 0;
-
-            if (!engine_.LengthWithoutLastToken(
-                    latin_buffer_,
-                    &new_length))
-            {
-                return S_OK;
-            }
-
-            latin_buffer_.resize(new_length);
+            latin_buffer_.pop_back();
 
             OKKHOR_LOG_INFO(
                 "Backspace latin buffer=\"" +
                 latin_buffer_ +
                 "\"");
 
-            HRESULT hr =
+            const HRESULT hr =
                 UpdateComposition(context);
 
             OKKHOR_LOG_INFO(
@@ -522,7 +448,7 @@ namespace okkhor_windows
 
             if (composition_)
             {
-                HRESULT hr =
+                const HRESULT hr =
                     EndComposition(context);
 
                 OKKHOR_LOG_INFO(
@@ -564,7 +490,7 @@ namespace okkhor_windows
             latin_buffer_ +
             "\"");
 
-        HRESULT hr =
+        const HRESULT hr =
             UpdateComposition(context);
 
         OKKHOR_LOG_INFO(
@@ -621,14 +547,6 @@ namespace okkhor_windows
     {
         if (!context)
             return E_INVALIDARG;
-
-        if (!engine_.ready())
-        {
-            OKKHOR_LOG_ERROR(
-                "UpdateComposition: engine not ready");
-
-            return E_UNEXPECTED;
-        }
 
         // -------------------------------------------------------------------------
         // Core transliteration
@@ -688,7 +606,7 @@ namespace okkhor_windows
         OKKHOR_LOG_INFO(
             "calling RequestEditSession");
 
-        HRESULT hr =
+        const HRESULT hr =
             context->RequestEditSession(
                 client_id_,
                 session,
@@ -713,7 +631,6 @@ namespace okkhor_windows
         ITfContext *context,
         TfEditCookie edit_cookie)
     {
-
         if (!context)
             return E_INVALIDARG;
 
@@ -726,7 +643,6 @@ namespace okkhor_windows
 
         if (!composition_)
         {
-
             log::Write(
                 log::Level::Info,
                 "no existing composition; obtaining composition services");
@@ -858,6 +774,7 @@ namespace okkhor_windows
             return hr;
 
         TF_SELECTION selection{};
+
         selection.range = active_range.Get();
         selection.style.ase = TF_AE_NONE;
         selection.style.fInterimChar = FALSE;
@@ -900,7 +817,7 @@ namespace okkhor_windows
 
         HRESULT session_result = E_FAIL;
 
-        HRESULT hr =
+        const HRESULT hr =
             context->RequestEditSession(
                 client_id_,
                 session,
@@ -935,7 +852,7 @@ namespace okkhor_windows
         if (!composition_)
             return S_OK;
 
-        HRESULT hr =
+        const HRESULT hr =
             composition_->EndComposition(
                 edit_cookie);
 
@@ -961,7 +878,6 @@ namespace okkhor_windows
         TfEditCookie edit_cookie,
         ITfComposition *composition)
     {
-
         log::Write(
             log::Level::Info,
             "OnCompositionTerminated cookie=" +
@@ -976,6 +892,7 @@ namespace okkhor_windows
             composition_.Reset();
             active_context_.Reset();
             composition_text_.clear();
+            latin_buffer_.clear();
         }
 
         return S_OK;
