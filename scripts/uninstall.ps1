@@ -39,11 +39,29 @@ if (-not $principal.IsInRole(
 # Stop processes that may have loaded the TSF DLL
 # ------------------------------------------------------------
 
-$processNames = @(
-    'explorer',
-    'TextInputHost',
-    'ctfmon'
-)
+function Get-OkkhorProcesses {
+
+    $dllName = 'okkhor_tsf.dll'
+
+    $output = tasklist /m $dllName 2>$null
+
+    $result = @()
+
+    foreach ($line in $output) {
+
+        if ($line -match '^\s*(\S+)\s+(\d+)\s+') {
+
+            $result += [PSCustomObject]@{
+                Name = $matches[1]
+                Id   = [int]$matches[2]
+            }
+        }
+    }
+
+    return $result
+}
+
+$processNames =@(Get-OkkhorProcesses)
 
 foreach ($name in $processNames) {
 

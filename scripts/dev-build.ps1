@@ -45,23 +45,20 @@ if (-not $principal.IsInRole(
 
 function Get-OkkhorProcesses {
 
-    $processNames = @(
-        'explorer',
-        'TextInputHost',
-        'ctfmon'
-    )
+    $dllName = 'okkhor_tsf.dll'
+
+    $output = tasklist /m $dllName 2>$null
 
     $result = @()
 
-    foreach ($name in $processNames) {
+    foreach ($line in $output) {
 
-        $processes = Get-Process `
-            -Name $name `
-            -ErrorAction SilentlyContinue
+        if ($line -match '^\s*(\S+)\s+(\d+)\s+') {
 
-        foreach ($process in $processes) {
-
-            $result += $process
+            $result += [PSCustomObject]@{
+                Name = $matches[1]
+                Id   = [int]$matches[2]
+            }
         }
     }
 
@@ -205,10 +202,13 @@ Write-Host ''
 Write-Host '[3/3] Registering new TSF DLL...'
 Write-Host ''
 
-& $installScript -Dll $dllPath
+powershell.exe `
+    -NoProfile `
+    -ExecutionPolicy Bypass `
+    -File $installScript `
+    -Dll $dllPath
 
 if ($LASTEXITCODE -ne 0) {
-
     throw "Installation failed with exit code $LASTEXITCODE."
 }
 

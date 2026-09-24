@@ -297,11 +297,29 @@ else {
 
 Write-Step 'Stopping Windows components...'
 
-$processNames = @(
-    'explorer'
-    'TextInputHost'
-    'ctfmon'
-)
+function Get-OkkhorProcesses {
+
+    $dllName = 'okkhor_tsf.dll'
+
+    $output = tasklist /m $dllName 2>$null
+
+    $result = @()
+
+    foreach ($line in $output) {
+
+        if ($line -match '^\s*(\S+)\s+(\d+)\s+') {
+
+            $result += [PSCustomObject]@{
+                Name = $matches[1]
+                Id   = [int]$matches[2]
+            }
+        }
+    }
+
+    return $result
+}
+
+$processNames =@(Get-OkkhorProcesses)
 
 foreach ($name in $processNames) {
 
@@ -361,17 +379,30 @@ Write-Step 'Registering Okkhor...'
 
 Write-Host "DLL: $dllPath"
 
-& $regsvr32 /s $dllPath
+$regsvrProcess = Start-Process `
+    -FilePath $regsvr32 `
+    -ArgumentList @('/s', $dllPath) `
+    -Wait `
+    -PassThru
 
-if ($LASTEXITCODE -ne 0) {
+$regsvrExitCode = $regsvrProcess.ExitCode
 
-    throw `
-        "Okkhor registration failed. regsvr32 exit code: $LASTEXITCODE"
+Write-Host "regsvr32 exit code: $regsvrExitCode"
+
+if ($regsvrExitCode -eq 0) {
+
+    Write-Host `
+        'Registration successful.' `
+        -ForegroundColor Green
 }
+else {
 
-Write-Host `
-    'Registration successful.' `
-    -ForegroundColor Green
+    Write-Warning `
+        "regsvr32 returned exit code $regsvrExitCode."
+
+    Write-Warning `
+        'Verify the Okkhor keyboard appears in Windows before continuing.'
+}
 
 # ---------------------------------------------------------------------------
 # Restart Explorer
@@ -379,7 +410,7 @@ Write-Host `
 
 Write-Step 'Restarting Windows Explorer...'
 
-Start-Process explorer.exe
+Start-Process explorer.exe -WindowStyle Hidden
 
 # ---------------------------------------------------------------------------
 # Cleanup temporary elevated installer
