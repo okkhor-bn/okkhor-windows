@@ -1,28 +1,140 @@
 # scripts/uninstall.ps1
 #
-# Removes the Okkhor text service. Elevated PowerShell required.
+# Removes the Okkhor text service.
 #
-#     powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 -Dll build\Debug\okkhor_tsf.dll
+# Run from an elevated PowerShell:
+#
+#   powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1
+#
+
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Dll,
     [switch]$KeepDataDirSetting
 )
 
 $ErrorActionPreference = 'Stop'
 
-$identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
+$InstallDir = Join-Path $env:ProgramFiles 'Okkhor'
+$DllPath = Join-Path $InstallDir 'okkhor_tsf.dll'
+$regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
+
+Write-Host ''
+Write-Host '=== Okkhor uninstall ==='
+Write-Host ''
+
+# ------------------------------------------------------------
+# Administrator check
+# ------------------------------------------------------------
+
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+
+if (-not $principal.IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator
+    )) {
     throw 'Run this script from an elevated PowerShell prompt.'
 }
 
-$dllPath = (Resolve-Path $Dll).Path
-& regsvr32.exe /u /s $dllPath
-if ($LASTEXITCODE -ne 0) { throw "regsvr32 /u failed with exit code $LASTEXITCODE" }
+# ------------------------------------------------------------
+# Stop processes that may have loaded the TSF DLL
+# ------------------------------------------------------------
 
-if (-not $KeepDataDirSetting) {
-    Remove-Item -Path 'HKCU:\Software\Okkhor' -Recurse -Force -ErrorAction SilentlyContinue
+$processNames = @(
+    'explorer',
+    'TextInputHost',
+    'ctfmon'
+)
+
+foreach ($name in $processNames) {
+
+    $processes = Get-Process `
+        -Name $name `
+        -ErrorAction SilentlyContinue
+
+    foreach ($process in $processes) {
+
+        Write-Host `
+            "Stopping $($process.ProcessName) (PID $($process.Id))..."
+
+        Stop-Process `
+            -Id $process.Id `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
 }
 
-Write-Host 'Unregistered. Sign out and back in if Windows still lists the keyboard.'
+Start-Sleep -Milliseconds 500
+
+# ------------------------------------------------------------
+# Unregister TSF
+# ------------------------------------------------------------
+
+if (Test-Path $DllPath) {
+
+    Write-Host ''
+    Write-Host "Unregistering $DllPath..."
+
+    & $regsvr32 /u /s $DllPath
+
+    if ($LASTEXITCODE -ne 0) {
+        throw `
+            "regsvr32 /u failed with exit code $LASTEXITCODE."
+    }
+
+    Write-Host 'Unregistration completed.'
+}
+else {
+
+    Write-Host ''
+    Write-Host 'Okkhor DLL was not found.'
+    Write-Host 'Skipping TSF unregistration.'
+}
+
+# ------------------------------------------------------------
+# Remove installed files
+# ------------------------------------------------------------
+
+if (Test-Path $InstallDir) {
+
+    Write-Host ''
+    Write-Host "Removing $InstallDir..."
+
+    Remove-Item `
+        -Path $InstallDir `
+        -Recurse `
+        -Force
+
+    Write-Host 'Installation directory removed.'
+}
+
+# ------------------------------------------------------------
+# Remove registry settings
+# ------------------------------------------------------------
+
+if (-not $KeepDataDirSetting) {
+
+    Remove-Item `
+        -Path 'HKCU:\Software\Okkhor' `
+        -Recurse `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+    Write-Host 'Okkhor registry settings removed.'
+}
+
+# ------------------------------------------------------------
+# Restart Windows components
+# ------------------------------------------------------------
+
+Write-Host ''
+Write-Host 'Restarting Windows components...'
+
+Start-Process explorer.exe
+Start-Process ctfmon.exe
+
+Write-Host ''
+Write-Host '=== Okkhor uninstalled successfully ==='
+Write-Host ''
+Write-Host 'If Windows still lists Okkhor Phonetic,'
+Write-Host 'sign out and sign back in.'
+Write-Host ''
