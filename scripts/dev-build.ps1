@@ -219,3 +219,8 @@ Write-Host "DLL: $dllPath"
 Write-Host ''
 Write-Host 'Switch to Okkhor Phonetic and test it.'
 Write-Host ''
+
+Write-Host 'Installation complete.' -ForegroundColor Green
+Write-Host ''
+Write-Host 'Press any key to exit...'
+$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
