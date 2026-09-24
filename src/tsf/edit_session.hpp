@@ -11,7 +11,8 @@ class OkkhorTextService;
 enum class CompositionEditOperation
 {
     Update,
-    End
+    End,
+    DeleteSelection
 };
 
 class CompositionEditSession

@@ -413,6 +413,54 @@ namespace okkhor_windows
 
         if (wParam == VK_BACK)
         {
+            TF_SELECTION selection{};
+
+            HRESULT selection_hr =
+                E_FAIL;
+
+            ULONG fetched = 0;
+
+            // We need an edit session to safely inspect the selection.
+            // For now, if an Okkhor composition exists, let the
+            // composition edit session handle the selection.
+            if (composition_)
+            {
+                selection_hr =
+                    context->GetSelection(
+                        TF_INVALID_COOKIE,
+                        TF_DEFAULT_SELECTION,
+                        1,
+                        &selection,
+                        &fetched);
+            }
+
+            if (SUCCEEDED(selection_hr) &&
+                fetched > 0 &&
+                selection.range)
+            {
+                LONG selection_start = 0;
+                LONG selection_length = 0;
+
+                if (SUCCEEDED(
+                        selection.range->GetExtent(
+                            &selection_start,
+                            &selection_length)) &&
+                    selection_length > 0)
+                {
+                    selection.range->Release();
+
+                    HRESULT hr =
+                        DeleteSelection(context);
+
+                    if (SUCCEEDED(hr))
+                        *eaten = TRUE;
+
+                    return hr;
+                }
+
+                selection.range->Release();
+            }
+
             if (latin_buffer_.empty())
                 return S_OK;
 
@@ -838,6 +886,38 @@ namespace okkhor_windows
         return session_result;
     }
 
+    HRESULT OkkhorTextService::DeleteSelection(
+        ITfContext *context)
+    {
+        if (!context)
+            return E_INVALIDARG;
+
+        auto *session =
+            new CompositionEditSession(
+                this,
+                context,
+                CompositionEditOperation::DeleteSelection);
+
+        if (!session)
+            return E_OUTOFMEMORY;
+
+        HRESULT session_result = E_FAIL;
+
+        const HRESULT hr =
+            context->RequestEditSession(
+                client_id_,
+                session,
+                TF_ES_SYNC | TF_ES_READWRITE,
+                &session_result);
+
+        session->Release();
+
+        if (FAILED(hr))
+            return hr;
+
+        return session_result;
+    }
+
     HRESULT OkkhorTextService::DoCompositionEnd(
         ITfContext *context,
         TfEditCookie edit_cookie)
@@ -872,6 +952,62 @@ namespace okkhor_windows
         }
 
         return hr;
+    }
+
+    HRESULT OkkhorTextService::DoDeleteSelection(
+        ITfContext *context,
+        TfEditCookie edit_cookie)
+    {
+        if (!context)
+            return E_INVALIDARG;
+
+        TF_SELECTION selection{};
+
+        ULONG fetched = 0;
+
+        HRESULT hr = context->GetSelection(
+            edit_cookie,
+            TF_DEFAULT_SELECTION,
+            1,
+            &selection,
+            &fetched);
+
+        if (FAILED(hr))
+            return hr;
+
+        if (fetched == 0 || !selection.range)
+            return S_OK;
+
+        LONG start = 0;
+        LONG end = 0;
+
+        hr = selection.range->GetExtent(
+            &start,
+            &end);
+
+        if (FAILED(hr))
+            return hr;
+
+        if (end == 0)
+            return S_OK;
+
+        hr = selection.range->SetText(
+            edit_cookie,
+            0,
+            L"",
+            0);
+
+        if (FAILED(hr))
+            return hr;
+
+        // The application text was deleted, so Okkhor's
+        // composition state must no longer represent it.
+        composition_.Reset();
+        active_context_.Reset();
+        composition_text_.clear();
+        latin_buffer_.clear();
+
+        return S_OK;
     }
 
     STDMETHODIMP OkkhorTextService::OnCompositionTerminated(
