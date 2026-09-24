@@ -88,7 +88,11 @@ namespace
         return IsLatinKey(vk) ||
                vk == VK_BACK ||
                vk == VK_SPACE ||
-               vk == VK_RETURN;
+               vk == VK_RETURN ||
+               vk == VK_OEM_1 ||      // ;
+               vk == VK_OEM_COMMA ||  // ,
+               vk == VK_OEM_PERIOD || // .
+               vk == VK_OEM_3;        // `;
     }
 
     std::string Hex(unsigned long value)
