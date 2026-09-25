@@ -875,9 +875,6 @@ namespace okkhor_windows
 
         if (composition_text_.empty())
         {
-            OKKHOR_LOG_INFO(
-                "DoCompositionUpdate: output is empty");
-
             if (owned_range_)
             {
                 HRESULT hr = owned_range_->SetText(
@@ -886,18 +883,26 @@ namespace okkhor_windows
                     L"",
                     0);
 
-                OKKHOR_LOG_INFO(
-                    "owned_range SetText(empty) hr=" +
-                    Hex(static_cast<unsigned long>(hr)));
-
                 if (FAILED(hr))
                     return hr;
             }
 
-            ResetOkkhorState();
-
-            OKKHOR_LOG_INFO(
-                "DoCompositionUpdate completed successfully; output deleted");
+            if (latin_buffer_.empty())
+            {
+                // Buffer itself is empty (e.g. backspaced down to nothing):
+                // there's nothing left to compose, so fully reset.
+                ResetOkkhorState();
+            }
+            else
+            {
+                // The engine returned no output for a still non-empty
+                // buffer (e.g. an incomplete phonetic sequence). Keep
+                // latin_buffer_ so the user's typing isn't lost; just drop
+                // the now-invalid owned range, since there's nothing on
+                // screen for it to point at anymore.
+                owned_range_.Reset();
+                active_context_.Reset();
+            }
 
             return S_OK;
         }
@@ -1045,7 +1050,7 @@ namespace okkhor_windows
         OKKHOR_LOG_INFO(
             "EndComposition: releasing Okkhor-owned range");
 
-         ResetOkkhorState();
+        ResetOkkhorState();
 
         return S_OK;
     }
