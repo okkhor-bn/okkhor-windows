@@ -31,7 +31,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 PrivilegesRequired=admin
 
-OutputBaseFilename=OkkhorSetup
+OutputBaseFilename=OkkhorSetup-x64
 
 Compression=lzma2
 SolidCompression=yes
