@@ -4,3 +4,5 @@ out/
 *.user
 build-*
 dist
+*.exe
+/installer/output
