@@ -6,150 +6,178 @@
 #include <wrl/client.h>
 
 #include "core/engine_host.hpp"
+#include "tsf/edit_session.hpp"
 
 namespace okkhor_windows
 {
 
-class CompositionEditSession;
+    class CompositionEditSession;
 
-class OkkhorTextService
-    : public ITfTextInputProcessorEx,
-      public ITfKeyEventSink,
-      public ITfCompositionSink
-{
-public:
-    OkkhorTextService();
+    class OkkhorTextService
+        : public ITfTextInputProcessorEx,
+          public ITfKeyEventSink
+    {
+    public:
+        OkkhorTextService();
 
-    STDMETHODIMP OnCompositionTerminated(
-        TfEditCookie edit_cookie,
-        ITfComposition* composition) override;
+        // -------------------------------------------------------------------------
+        // IUnknown
+        // -------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // IUnknown
-    // -------------------------------------------------------------------------
+        STDMETHODIMP QueryInterface(
+            REFIID riid,
+            void **ppv) override;
 
-    STDMETHODIMP QueryInterface(
-        REFIID riid,
-        void** ppv) override;
+        STDMETHODIMP_(ULONG)
+        AddRef() override;
 
-    STDMETHODIMP_(ULONG)
-    AddRef() override;
+        STDMETHODIMP_(ULONG)
+        Release() override;
 
-    STDMETHODIMP_(ULONG)
-    Release() override;
+        // -------------------------------------------------------------------------
+        // ITfTextInputProcessor
+        // -------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // ITfTextInputProcessor
-    // -------------------------------------------------------------------------
+        STDMETHODIMP Activate(
+            ITfThreadMgr *thread_mgr,
+            TfClientId client_id) override;
 
-    STDMETHODIMP Activate(
-        ITfThreadMgr* thread_mgr,
-        TfClientId client_id) override;
+        STDMETHODIMP Deactivate() override;
 
-    STDMETHODIMP Deactivate() override;
+        // -------------------------------------------------------------------------
+        // ITfTextInputProcessorEx
+        // -------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // ITfTextInputProcessorEx
-    // -------------------------------------------------------------------------
+        STDMETHODIMP ActivateEx(
+            ITfThreadMgr *thread_mgr,
+            TfClientId client_id,
+            DWORD flags) override;
 
-    STDMETHODIMP ActivateEx(
-        ITfThreadMgr* thread_mgr,
-        TfClientId client_id,
-        DWORD flags) override;
+        // -------------------------------------------------------------------------
+        // ITfKeyEventSink
+        // -------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // ITfKeyEventSink
-    // -------------------------------------------------------------------------
+        STDMETHODIMP OnSetFocus(
+            BOOL foreground) override;
 
-    STDMETHODIMP OnSetFocus(
-        BOOL foreground) override;
+        STDMETHODIMP OnTestKeyDown(
+            ITfContext *context,
+            WPARAM wParam,
+            LPARAM lParam,
+            BOOL *eaten) override;
 
-    STDMETHODIMP OnTestKeyDown(
-        ITfContext* context,
-        WPARAM wParam,
-        LPARAM lParam,
-        BOOL* eaten) override;
+        STDMETHODIMP OnTestKeyUp(
+            ITfContext *context,
+            WPARAM wParam,
+            LPARAM lParam,
+            BOOL *eaten) override;
 
-    STDMETHODIMP OnTestKeyUp(
-        ITfContext* context,
-        WPARAM wParam,
-        LPARAM lParam,
-        BOOL* eaten) override;
+        STDMETHODIMP OnKeyDown(
+            ITfContext *context,
+            WPARAM wParam,
+            LPARAM lParam,
+            BOOL *eaten) override;
 
-    STDMETHODIMP OnKeyDown(
-        ITfContext* context,
-        WPARAM wParam,
-        LPARAM lParam,
-        BOOL* eaten) override;
+        STDMETHODIMP OnKeyUp(
+            ITfContext *context,
+            WPARAM wParam,
+            LPARAM lParam,
+            BOOL *eaten) override;
 
-    STDMETHODIMP OnKeyUp(
-        ITfContext* context,
-        WPARAM wParam,
-        LPARAM lParam,
-        BOOL* eaten) override;
+        STDMETHODIMP OnPreservedKey(
+            ITfContext *context,
+            REFGUID rguid,
+            BOOL *eaten) override;
 
-    STDMETHODIMP OnPreservedKey(
-        ITfContext* context,
-        REFGUID rguid,
-        BOOL* eaten) override;
+        // -------------------------------------------------------------------------
+        // Edit-session entry points
+        // -------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // Composition edit-session entry points
-    // -------------------------------------------------------------------------
+        HRESULT DoCompositionUpdate(
+            ITfContext *context,
+            TfEditCookie edit_cookie);
 
-    HRESULT DoCompositionUpdate(
-        ITfContext* context,
-        TfEditCookie edit_cookie);
+        HRESULT DoCompositionEnd(
+            ITfContext *context,
+            TfEditCookie edit_cookie);
 
-    HRESULT DoCompositionEnd(
-        ITfContext* context,
-        TfEditCookie edit_cookie);
+        HRESULT DoBackspace(
+            ITfContext *context,
+            TfEditCookie edit_cookie);
 
-private:
-    ~OkkhorTextService();
+        HRESULT DoDeleteSelection(
+            ITfContext *context,
+            TfEditCookie edit_cookie);
 
-    HRESULT AttachThreadManager(
-        ITfThreadMgr* thread_mgr,
-        TfClientId client_id,
-        DWORD flags);
+        HRESULT OkkhorTextService::EndComposition(
+            ITfContext *);
 
-    void DetachThreadManager();
+    private:
+        ~OkkhorTextService();
 
-    HRESULT UpdateComposition(
-        ITfContext* context);
+        HRESULT AttachThreadManager(
+            ITfThreadMgr *thread_mgr,
+            TfClientId client_id,
+            DWORD flags);
 
-    HRESULT EndComposition(
-        ITfContext* context);
+        void DetachThreadManager();
 
-    LONG ref_count_;
+        // Requests a single ITfEditSession for the given operation. All
+        // per-keystroke work (transliteration, range updates, deletion)
+        // happens inside the resulting DoEditSession callback, so we only
+        // ever pay for one RequestEditSession + one engine call per key.
+        HRESULT RunEditSession(
+            ITfContext *context,
+            CompositionEditOperation operation);
 
-    // -------------------------------------------------------------------------
-    // TSF state
-    // -------------------------------------------------------------------------
+        // -------------------------------------------------------------------------
+        // Okkhor state
+        // -------------------------------------------------------------------------
 
-    Microsoft::WRL::ComPtr<ITfThreadMgr> thread_mgr_;
-    Microsoft::WRL::ComPtr<ITfKeystrokeMgr> keystroke_mgr_;
+        void ResetOkkhorState();
 
-    TfClientId client_id_ = TF_CLIENTID_NULL;
-    DWORD activate_flags_ = 0;
+        bool IsOwnedRangeAtSelection(
+            ITfContext *context,
+            TfEditCookie edit_cookie) const;
 
-    // -------------------------------------------------------------------------
-    // Okkhor core
-    // -------------------------------------------------------------------------
+        LONG ref_count_;
 
-    EngineHost engine_;
+        // -------------------------------------------------------------------------
+        // TSF state
+        // -------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // Current phonetic composition
-    // -------------------------------------------------------------------------
+        Microsoft::WRL::ComPtr<ITfThreadMgr> thread_mgr_;
+        Microsoft::WRL::ComPtr<ITfKeystrokeMgr> keystroke_mgr_;
 
-    std::string latin_buffer_;
-    std::wstring composition_text_;
+        TfClientId client_id_ = TF_CLIENTID_NULL;
+        DWORD activate_flags_ = 0;
 
-    Microsoft::WRL::ComPtr<ITfContext> active_context_;
-    Microsoft::WRL::ComPtr<ITfComposition> composition_;
+        // -------------------------------------------------------------------------
+        // Okkhor core
+        // -------------------------------------------------------------------------
 
-    friend class CompositionEditSession;
-};
+        EngineHost engine_;
+
+        // -------------------------------------------------------------------------
+        // Current Okkhor state
+        // -------------------------------------------------------------------------
+
+        // The Latin input that produced the current Bangla output.
+        std::string latin_buffer_;
+
+        // Current Bangla output from Okkhor.
+        std::wstring composition_text_;
+
+        // Context containing our committed Okkhor text.
+        Microsoft::WRL::ComPtr<ITfContext> active_context_;
+
+        // Range containing the committed Bangla text currently owned by Okkhor.
+        //
+        // Unlike ITfComposition, this is ordinary committed document text.
+        // There is therefore no TSF composition underline.
+        Microsoft::WRL::ComPtr<ITfRange> owned_range_;
+
+        friend class CompositionEditSession;
+    };
 
 } // namespace okkhor_windows

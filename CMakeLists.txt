@@ -124,6 +124,7 @@ if(WIN32)
     src/windows/unicode.cpp
 
     src/windows/okkhor_tsf.def
+    src/resources/okkhor.rc
   )
 
   set_target_properties(

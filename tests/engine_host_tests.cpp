@@ -83,6 +83,10 @@ int main()
         output.empty(),
         "empty input should produce empty output");
 
+    check(
+        !engine.Transliterate("ami", nullptr),
+        "null output pointer should fail");
+
     // -------------------------------------------------------------------------
     // Null output pointer
     // -------------------------------------------------------------------------
@@ -117,6 +121,10 @@ int main()
     check(
         first != second,
         "different inputs should normally produce different results");
+
+    std::cout << engine.Transliterate("Omi", &output) << " " << output << std::endl;
+    std::cout << engine.Transliterate("tOmi", &output) << " " << output << std::endl;
+    std::cout << engine.Transliterate("gOmi", &output) << " " << output << std::endl;
 
     // -------------------------------------------------------------------------
     // Move construction

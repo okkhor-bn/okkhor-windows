@@ -6,6 +6,7 @@
 #include <utility>
 #include <windows.h>
 
+#include "app/configuration.hpp"
 #include "tsf/edit_session.hpp"
 #include "util/log.hpp"
 #include "windows/module.hpp"
@@ -26,7 +27,9 @@ namespace
     std::wstring Utf8ToWide(const std::string &utf8)
     {
         if (utf8.empty())
+        {
             return {};
+        }
 
         const int length = ::MultiByteToWideChar(
             CP_UTF8,
@@ -37,7 +40,9 @@ namespace
             0);
 
         if (length <= 0)
+        {
             return {};
+        }
 
         std::wstring result(
             static_cast<std::size_t>(length),
@@ -57,38 +62,82 @@ namespace
         return result;
     }
 
-    bool VirtualKeyToLatin(WPARAM wParam, char *latin)
+    // -----------------------------------------------------------------------------
+    // Keyboard mapping
+    // -----------------------------------------------------------------------------
+
+    //
+    // NOTE:
+    //
+    // 0x0409 is the LANGID for English (United States), but ToUnicodeEx expects
+    // an HKL. This is kept here to match your current implementation.
+    //
+    // We can improve this later by loading the US keyboard layout with
+    // LoadKeyboardLayoutW(L"00000409", ...).
+    //
+    const HKL kUsQwertyHkl =
+        reinterpret_cast<HKL>(
+            static_cast<UINT_PTR>(0x00000409));
+
+    bool KeyboardKeyToLatin(
+        WPARAM wParam,
+        LPARAM lParam,
+        char *latin)
     {
         if (!latin)
+        {
             return false;
+        }
 
         *latin = '\0';
 
-        if (wParam < 'A' || wParam > 'Z')
+        BYTE keyboard_state[256] = {};
+
+        if (!::GetKeyboardState(keyboard_state))
+        {
             return false;
+        }
 
-        const bool shift =
-            (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const UINT scan_code =
+            (static_cast<UINT>(lParam) >> 16) & 0xFF;
 
-        if (shift)
-            *latin = static_cast<char>(wParam);
-        else
-            *latin = static_cast<char>(wParam - 'A' + 'a');
+        wchar_t buffer[8] = {};
+
+        const int result = ::ToUnicodeEx(
+            static_cast<UINT>(wParam),
+            scan_code,
+            keyboard_state,
+            buffer,
+            ARRAYSIZE(buffer),
+            1 << 2,
+            kUsQwertyHkl);
+
+        // We only accept one ordinary character.
+        //
+        // result < 0:
+        //     dead key
+        //
+        // result == 0:
+        //     no character
+        //
+        // result > 1:
+        //     multiple UTF-16 code units
+        //
+        if (result != 1)
+        {
+            return false;
+        }
+
+        // The Okkhor input buffer is currently byte-based.
+        // Therefore only accept ASCII here.
+        if (buffer[0] > 0x7F)
+        {
+            return false;
+        }
+
+        *latin = static_cast<char>(buffer[0]);
 
         return true;
-    }
-
-    bool IsLatinKey(WPARAM vk)
-    {
-        return vk >= 'A' && vk <= 'Z';
-    }
-
-    bool IsHandledKey(WPARAM vk)
-    {
-        return IsLatinKey(vk) ||
-               vk == VK_BACK ||
-               vk == VK_SPACE ||
-               vk == VK_RETURN;
     }
 
     std::string Hex(unsigned long value)
@@ -109,6 +158,10 @@ namespace
 namespace okkhor_windows
 {
 
+    // =============================================================================
+    // Construction / destruction
+    // =============================================================================
+
     OkkhorTextService::OkkhorTextService()
         : ref_count_(1)
     {
@@ -121,35 +174,46 @@ namespace okkhor_windows
         ModuleRelease();
     }
 
-    // -----------------------------------------------------------------------------
+    // =============================================================================
     // IUnknown
-    // -----------------------------------------------------------------------------
+    // =============================================================================
 
     STDMETHODIMP OkkhorTextService::QueryInterface(
         REFIID riid,
         void **ppv)
     {
         if (!ppv)
+        {
             return E_INVALIDARG;
+        }
 
         *ppv = nullptr;
 
         if (IsEqualIID(riid, IID_IUnknown) ||
             IsEqualIID(riid, IID_ITfTextInputProcessor))
         {
+
             *ppv = static_cast<ITfTextInputProcessor *>(this);
         }
-        else if (IsEqualIID(riid, IID_ITfTextInputProcessorEx))
+        else if (IsEqualIID(
+                     riid,
+                     IID_ITfTextInputProcessorEx))
         {
+
             *ppv = static_cast<ITfTextInputProcessorEx *>(this);
         }
-        else if (IsEqualIID(riid, IID_ITfKeyEventSink))
+        else if (IsEqualIID(
+                     riid,
+                     IID_ITfKeyEventSink))
         {
+
             *ppv = static_cast<ITfKeyEventSink *>(this);
         }
 
         if (!*ppv)
+        {
             return E_NOINTERFACE;
+        }
 
         AddRef();
 
@@ -170,14 +234,16 @@ namespace okkhor_windows
             ::InterlockedDecrement(&ref_count_);
 
         if (remaining == 0)
+        {
             delete this;
+        }
 
         return static_cast<ULONG>(remaining);
     }
 
-    // -----------------------------------------------------------------------------
+    // =============================================================================
     // ITfTextInputProcessor
-    // -----------------------------------------------------------------------------
+    // =============================================================================
 
     STDMETHODIMP OkkhorTextService::Activate(
         ITfThreadMgr *thread_mgr,
@@ -199,11 +265,10 @@ namespace okkhor_windows
         OKKHOR_LOG_INFO(
             "TSF activation requested");
 
-        const HRESULT hr =
-            AttachThreadManager(
-                thread_mgr,
-                client_id,
-                flags);
+        const HRESULT hr = AttachThreadManager(
+            thread_mgr,
+            client_id,
+            flags);
 
         if (FAILED(hr))
         {
@@ -227,9 +292,9 @@ namespace okkhor_windows
         return S_OK;
     }
 
-    // -----------------------------------------------------------------------------
+    // =============================================================================
     // TSF attachment
-    // -----------------------------------------------------------------------------
+    // =============================================================================
 
     HRESULT OkkhorTextService::AttachThreadManager(
         ITfThreadMgr *thread_mgr,
@@ -237,7 +302,9 @@ namespace okkhor_windows
         DWORD flags)
     {
         if (!thread_mgr)
+        {
             return E_INVALIDARG;
+        }
 
         thread_mgr_ = thread_mgr;
         client_id_ = client_id;
@@ -255,9 +322,8 @@ namespace okkhor_windows
                 "running on a secure desktop");
         }
 
-        HRESULT hr =
-            thread_mgr_->QueryInterface(
-                IID_PPV_ARGS(&keystroke_mgr_));
+        HRESULT hr = thread_mgr_->QueryInterface(
+            IID_PPV_ARGS(&keystroke_mgr_));
 
         if (FAILED(hr))
         {
@@ -268,11 +334,10 @@ namespace okkhor_windows
             return hr;
         }
 
-        hr =
-            keystroke_mgr_->AdviseKeyEventSink(
-                client_id_,
-                static_cast<ITfKeyEventSink *>(this),
-                TRUE);
+        hr = keystroke_mgr_->AdviseKeyEventSink(
+            client_id_,
+            static_cast<ITfKeyEventSink *>(this),
+            TRUE);
 
         if (FAILED(hr))
         {
@@ -304,11 +369,7 @@ namespace okkhor_windows
                 "ITfKeyEventSink unadvised");
         }
 
-        composition_.Reset();
-        active_context_.Reset();
-
-        composition_text_.clear();
-        latin_buffer_.clear();
+        ResetOkkhorState();
 
         client_id_ = TF_CLIENTID_NULL;
         activate_flags_ = 0;
@@ -322,9 +383,24 @@ namespace okkhor_windows
         }
     }
 
-    // -----------------------------------------------------------------------------
-    // ITfKeyEventSink
-    // -----------------------------------------------------------------------------
+    // =============================================================================
+    // Okkhor state
+    // =============================================================================
+
+    void OkkhorTextService::ResetOkkhorState()
+    {
+        OKKHOR_LOG_INFO(
+            "resetting Okkhor state");
+
+        latin_buffer_.clear();
+        composition_text_.clear();
+        owned_range_.Reset();
+        active_context_.Reset();
+    }
+
+    // =============================================================================
+    // Focus
+    // =============================================================================
 
     STDMETHODIMP OkkhorTextService::OnSetFocus(
         BOOL foreground)
@@ -336,34 +412,79 @@ namespace okkhor_windows
         return S_OK;
     }
 
+    // =============================================================================
+    // Key testing
+    // =============================================================================
+
     STDMETHODIMP OkkhorTextService::OnTestKeyDown(
         ITfContext *,
         WPARAM wParam,
-        LPARAM,
+        LPARAM lParam,
         BOOL *eaten)
     {
         if (!eaten)
+        {
             return E_INVALIDARG;
+        }
 
         *eaten = FALSE;
 
         if (IsSystemModifierPressed())
+        {
             return S_OK;
+        }
 
-        if (IsHandledKey(wParam))
+        // ---------------------------------------------------------------------------
+        // Backspace
+        // ---------------------------------------------------------------------------
+
+        if (wParam == VK_BACK)
         {
             *eaten = TRUE;
-
-            OKKHOR_LOG_INFO(
-                "OnTestKeyDown handled vk=" +
-                Hex(static_cast<unsigned long>(wParam)));
 
             return S_OK;
         }
 
-        OKKHOR_LOG_INFO(
-            "OnTestKeyDown ignored vk=" +
-            Hex(static_cast<unsigned long>(wParam)));
+        // ---------------------------------------------------------------------------
+        // Space / Enter
+        // ---------------------------------------------------------------------------
+
+        if (wParam == VK_SPACE ||
+            wParam == VK_RETURN)
+        {
+
+            *eaten = TRUE;
+
+            return S_OK;
+        }
+
+        // ---------------------------------------------------------------------------
+        // US QWERTY character
+        // ---------------------------------------------------------------------------
+
+        char latin = 0;
+
+        if (KeyboardKeyToLatin(
+                wParam,
+                lParam,
+                &latin))
+        {
+
+            *eaten = TRUE;
+
+            OKKHOR_LOG_INFO(
+                "OnTestKeyDown handled vk=" +
+                Hex(static_cast<unsigned long>(wParam)) +
+                " latin=" +
+                std::string(1, latin));
+        }
+        else
+        {
+
+            OKKHOR_LOG_INFO(
+                "OnTestKeyDown ignored vk=" +
+                Hex(static_cast<unsigned long>(wParam)));
+        }
 
         return S_OK;
     }
@@ -375,7 +496,9 @@ namespace okkhor_windows
         BOOL *eaten)
     {
         if (!eaten)
+        {
             return E_INVALIDARG;
+        }
 
         *eaten = FALSE;
 
@@ -386,122 +509,146 @@ namespace okkhor_windows
         return S_OK;
     }
 
+    // =============================================================================
+    // Key down
+    // =============================================================================
+
     STDMETHODIMP OkkhorTextService::OnKeyDown(
         ITfContext *context,
         WPARAM wParam,
-        LPARAM,
+        LPARAM lParam,
         BOOL *eaten)
     {
         if (!eaten)
+        {
             return E_INVALIDARG;
+        }
 
         *eaten = FALSE;
 
         if (IsSystemModifierPressed())
+        {
             return S_OK;
+        }
 
         if (!context)
+        {
             return E_INVALIDARG;
+        }
 
         OKKHOR_LOG_INFO(
             "OnKeyDown vk=" +
             Hex(static_cast<unsigned long>(wParam)));
 
-        // -------------------------------------------------------------------------
+        // ===========================================================================
         // Backspace
-        // -------------------------------------------------------------------------
+        // ===========================================================================
 
         if (wParam == VK_BACK)
         {
-            if (latin_buffer_.empty())
-                return S_OK;
-
-            latin_buffer_.pop_back();
-
-            OKKHOR_LOG_INFO(
-                "Backspace latin buffer=\"" +
-                latin_buffer_ +
-                "\"");
+            // Always eat backspace and let DoBackspace (inside a single
+            // edit session, with a real TfEditCookie) decide what it means:
+            //   - pop the last Latin character if we're still mid-composition
+            //     and the caret hasn't moved, or
+            //   - fall back to deleting whatever is actually selected/at the
+            //     caret if there's no live composition, or if the caret has
+            //     moved away from the range Okkhor owns.
+            //
+            // We deliberately do NOT touch latin_buffer_/owned_range_ here:
+            // deciding which of those cases applies requires checking the
+            // current TSF selection, which needs an edit cookie.
+            *eaten = TRUE;
 
             const HRESULT hr =
-                UpdateComposition(context);
+                RunEditSession(
+                    context,
+                    CompositionEditOperation::Backspace);
 
-            OKKHOR_LOG_INFO(
-                "Backspace UpdateComposition hr=" +
-                Hex(static_cast<unsigned long>(hr)));
-
-            if (SUCCEEDED(hr))
-                *eaten = TRUE;
+            if (FAILED(hr))
+            {
+                OKKHOR_LOG_ERROR(
+                    "Backspace edit session failed, hr=" +
+                    Hex(static_cast<unsigned long>(hr)));
+            }
 
             return hr;
         }
 
-        // -------------------------------------------------------------------------
+        // ===========================================================================
         // Space / Enter
-        // -------------------------------------------------------------------------
+        // ===========================================================================
 
         if (wParam == VK_SPACE ||
             wParam == VK_RETURN)
         {
+
             OKKHOR_LOG_INFO(
                 "Space/Enter received");
 
-            if (composition_)
-            {
-                const HRESULT hr =
-                    EndComposition(context);
+            //
+            // There is no active ITfComposition anymore.
+            //
+            // The current Bangla output has already been committed.
+            //
+            // Simply release our ownership of the current word.
+            //
+            ResetOkkhorState();
 
-                OKKHOR_LOG_INFO(
-                    "EndComposition hr=" +
-                    Hex(static_cast<unsigned long>(hr)));
-
-                if (FAILED(hr))
-                    return hr;
-            }
-
-            latin_buffer_.clear();
-            composition_text_.clear();
-
+            //
+            // Let the application receive Space / Enter normally.
+            //
             *eaten = FALSE;
 
             return S_OK;
         }
 
-        // -------------------------------------------------------------------------
-        // A-Z
-        // -------------------------------------------------------------------------
+        // ===========================================================================
+        // US QWERTY character
+        // ===========================================================================
 
         char latin = 0;
 
-        if (!VirtualKeyToLatin(
+        if (!KeyboardKeyToLatin(
                 wParam,
+                lParam,
                 &latin))
         {
+
             OKKHOR_LOG_INFO(
                 "OnKeyDown key not handled");
 
             return S_OK;
         }
 
+        // ---------------------------------------------------------------------------
+        // Append Latin character to our authoritative buffer and re-run
+        // transliteration inside a single edit session.
+        // ---------------------------------------------------------------------------
+
         latin_buffer_.push_back(latin);
 
-        OKKHOR_LOG_INFO(
-            "Latin buffer=\"" +
-            latin_buffer_ +
-            "\"");
+        // Okkhor has claimed this key.
+        // Never let Windows insert the original Latin character.
+        *eaten = TRUE;
 
         const HRESULT hr =
-            UpdateComposition(context);
+            RunEditSession(
+                context,
+                CompositionEditOperation::Update);
 
-        OKKHOR_LOG_INFO(
-            "UpdateComposition returned hr=" +
-            Hex(static_cast<unsigned long>(hr)));
-
-        if (SUCCEEDED(hr))
-            *eaten = TRUE;
+        if (FAILED(hr))
+        {
+            OKKHOR_LOG_ERROR(
+                "Update edit session failed, hr=" +
+                Hex(static_cast<unsigned long>(hr)));
+        }
 
         return hr;
     }
+
+    // =============================================================================
+    // Key up
+    // =============================================================================
 
     STDMETHODIMP OkkhorTextService::OnKeyUp(
         ITfContext *,
@@ -510,7 +657,9 @@ namespace okkhor_windows
         BOOL *eaten)
     {
         if (!eaten)
+        {
             return E_INVALIDARG;
+        }
 
         *eaten = FALSE;
 
@@ -521,13 +670,19 @@ namespace okkhor_windows
         return S_OK;
     }
 
+    // =============================================================================
+    // Preserved key
+    // =============================================================================
+
     STDMETHODIMP OkkhorTextService::OnPreservedKey(
         ITfContext *,
         REFGUID rguid,
         BOOL *eaten)
     {
         if (!eaten)
+        {
             return E_INVALIDARG;
+        }
 
         *eaten = FALSE;
 
@@ -538,18 +693,158 @@ namespace okkhor_windows
         return S_OK;
     }
 
-    // -----------------------------------------------------------------------------
-    // Composition
-    // -----------------------------------------------------------------------------
+    // =============================================================================
+    // Check whether our owned range is still immediately before the caret
+    // =============================================================================
 
-    HRESULT OkkhorTextService::UpdateComposition(
-        ITfContext *context)
+    bool OkkhorTextService::IsOwnedRangeAtSelection(
+        ITfContext *context,
+        TfEditCookie edit_cookie) const
+    {
+        if (!context || !owned_range_)
+        {
+            return false;
+        }
+
+        // The range belongs to the context in which it was created.
+        if (active_context_.Get() != context)
+        {
+            return false;
+        }
+
+        TF_SELECTION selection{};
+        ULONG fetched = 0;
+
+        HRESULT hr = context->GetSelection(
+            edit_cookie,
+            TF_DEFAULT_SELECTION,
+            1,
+            &selection,
+            &fetched);
+
+        if (FAILED(hr) ||
+            fetched == 0 ||
+            !selection.range)
+        {
+            return false;
+        }
+
+        // The user's selection must be a collapsed caret.
+        BOOL selection_empty = FALSE;
+
+        hr = selection.range->IsEmpty(
+            edit_cookie,
+            &selection_empty);
+
+        if (FAILED(hr) || !selection_empty)
+        {
+            selection.range->Release();
+            return false;
+        }
+
+        // The caret must be exactly at the end of our owned range.
+        BOOL equal_end = FALSE;
+
+        hr = selection.range->IsEqualEnd(
+            edit_cookie,
+            owned_range_.Get(),
+            TF_ANCHOR_END,
+            &equal_end);
+
+        selection.range->Release();
+
+        if (FAILED(hr))
+        {
+            return false;
+        }
+
+        return equal_end != FALSE;
+    }
+
+    // =============================================================================
+    // Shared edit-session dispatch
+    // =============================================================================
+    //
+    // NOTE: this used to be two separate functions (UpdateComposition and
+    // an inline block in DeleteSelection) that each transliterated the
+    // buffer and requested an edit session. DoCompositionUpdate below
+    // *also* transliterated, so every keystroke ran the Okkhor engine
+    // twice for no reason. All per-key work now happens exactly once,
+    // inside the DoEditSession callback where we actually have a
+    // TfEditCookie.
+    //
+    HRESULT OkkhorTextService::RunEditSession(
+        ITfContext *context,
+        CompositionEditOperation operation)
+    {
+        if (!context)
+        {
+            return E_INVALIDARG;
+        }
+
+        auto *session =
+            new (std::nothrow) CompositionEditSession(
+                this,
+                context,
+                operation);
+
+        if (!session)
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        HRESULT session_result = E_FAIL;
+
+        const HRESULT hr =
+            context->RequestEditSession(
+                client_id_,
+                session,
+                TF_ES_SYNC | TF_ES_READWRITE,
+                &session_result);
+
+        session->Release();
+
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+
+        return session_result;
+    }
+
+    // =============================================================================
+    // Perform committed-range replacement
+    // =============================================================================
+
+    HRESULT
+    OkkhorTextService::DoCompositionUpdate(
+        ITfContext *context,
+        TfEditCookie edit_cookie)
     {
         if (!context)
             return E_INVALIDARG;
 
         // -------------------------------------------------------------------------
-        // Core transliteration
+        // If we still think we own a range, make sure the caret is actually
+        // still sitting right after it. If the user clicked elsewhere,
+        // selected different text, etc., owned_range_ is stale: abandon it
+        // instead of blindly rewriting whatever it happens to point at.
+        // Falling into the "no owned range" branch below then inserts a
+        // fresh composition at the real, current selection.
+        // -------------------------------------------------------------------------
+
+        if (owned_range_ &&
+            !IsOwnedRangeAtSelection(context, edit_cookie))
+        {
+            OKKHOR_LOG_INFO(
+                "DoCompositionUpdate: owned range is stale; starting fresh");
+
+            owned_range_.Reset();
+            active_context_.Reset();
+        }
+
+        // -------------------------------------------------------------------------
+        // Convert the current Latin buffer to Bangla.
         // -------------------------------------------------------------------------
 
         std::string bangla_utf8;
@@ -559,223 +854,167 @@ namespace okkhor_windows
                 &bangla_utf8))
         {
             OKKHOR_LOG_ERROR(
-                "UpdateComposition: core transliteration failed");
-
+                "DoCompositionUpdate: transliteration failed");
             return E_FAIL;
         }
 
-        OKKHOR_LOG_TEXT(
-            "core output",
-            bangla_utf8);
+        std::wstring bangla = Utf8ToWide(bangla_utf8);
 
-        std::wstring bangla =
-            Utf8ToWide(bangla_utf8);
-
-        if (!bangla_utf8.empty() &&
-            bangla.empty())
+        if (!bangla_utf8.empty() && bangla.empty())
         {
             OKKHOR_LOG_ERROR(
-                "UpdateComposition: UTF-8 to UTF-16 conversion failed");
-
+                "DoCompositionUpdate: UTF-8 -> UTF-16 conversion failed");
             return E_FAIL;
         }
 
-        composition_text_ =
-            std::move(bangla);
-
-        active_context_ = context;
+        composition_text_ = std::move(bangla);
 
         // -------------------------------------------------------------------------
-        // Create edit session
+        // Empty output means delete our previously committed output.
         // -------------------------------------------------------------------------
 
-        OKKHOR_LOG_INFO(
-            "creating CompositionEditSession");
-
-        auto *session =
-            new CompositionEditSession(
-                this,
-                context,
-                CompositionEditOperation::Update);
-
-        if (!session)
-            return E_OUTOFMEMORY;
-
-        HRESULT session_result = E_FAIL;
-
-        OKKHOR_LOG_INFO(
-            "calling RequestEditSession");
-
-        const HRESULT hr =
-            context->RequestEditSession(
-                client_id_,
-                session,
-                TF_ES_SYNC | TF_ES_READWRITE,
-                &session_result);
-
-        OKKHOR_LOG_INFO(
-            "RequestEditSession returned hr=" +
-            Hex(static_cast<unsigned long>(hr)) +
-            " session_result=" +
-            Hex(static_cast<unsigned long>(session_result)));
-
-        session->Release();
-
-        if (FAILED(hr))
-            return hr;
-
-        return session_result;
-    }
-
-    HRESULT OkkhorTextService::DoCompositionUpdate(
-        ITfContext *context,
-        TfEditCookie edit_cookie)
-    {
-        if (!context)
-            return E_INVALIDARG;
-
-        log::Write(
-            log::Level::Info,
-            "DoCompositionUpdate entered cookie=" +
-                std::to_string(edit_cookie));
-
-        HRESULT hr = S_OK;
-
-        if (!composition_)
+        if (composition_text_.empty())
         {
-            log::Write(
-                log::Level::Info,
-                "no existing composition; obtaining composition services");
+            if (owned_range_)
+            {
+                HRESULT hr = owned_range_->SetText(
+                    edit_cookie,
+                    0,
+                    L"",
+                    0);
 
-            Microsoft::WRL::ComPtr<ITfContextComposition>
-                composition_services;
+                if (FAILED(hr))
+                    return hr;
+            }
 
-            hr = context->QueryInterface(
-                IID_ITfContextComposition,
-                reinterpret_cast<void **>(
-                    composition_services.GetAddressOf()));
+            if (latin_buffer_.empty())
+            {
+                // Buffer itself is empty (e.g. backspaced down to nothing):
+                // there's nothing left to compose, so fully reset.
+                ResetOkkhorState();
+            }
+            else
+            {
+                // The engine returned no output for a still non-empty
+                // buffer (e.g. an incomplete phonetic sequence). Keep
+                // latin_buffer_ so the user's typing isn't lost; just drop
+                // the now-invalid owned range, since there's nothing on
+                // screen for it to point at anymore.
+                owned_range_.Reset();
+                active_context_.Reset();
+            }
 
-            log::Write(
-                log::Level::Info,
-                "QueryInterface(ITfContextComposition) hr=" +
-                    Hex(static_cast<unsigned long>(hr)));
+            return S_OK;
+        }
 
-            if (FAILED(hr))
-                return hr;
+        // -------------------------------------------------------------------------
+        // First character/word: insert the Bangla output and keep the exact
+        // returned range as our owned range.
+        // -------------------------------------------------------------------------
+
+        if (!owned_range_)
+        {
+            OKKHOR_LOG_INFO(
+                "no owned range; inserting first Okkhor output");
 
             Microsoft::WRL::ComPtr<ITfInsertAtSelection>
                 insert_at_selection;
 
-            hr = context->QueryInterface(
-                IID_ITfInsertAtSelection,
-                reinterpret_cast<void **>(
-                    insert_at_selection.GetAddressOf()));
-
-            log::Write(
-                log::Level::Info,
-                "QueryInterface(ITfInsertAtSelection) hr=" +
-                    Hex(static_cast<unsigned long>(hr)));
+            HRESULT hr = context->QueryInterface(
+                IID_PPV_ARGS(&insert_at_selection));
 
             if (FAILED(hr))
+            {
+                OKKHOR_LOG_ERROR(
+                    "QueryInterface(ITfInsertAtSelection) failed, hr=" +
+                    Hex(static_cast<unsigned long>(hr)));
                 return hr;
+            }
 
-            Microsoft::WRL::ComPtr<ITfRange>
-                composition_range;
+            Microsoft::WRL::ComPtr<ITfRange> inserted_range;
 
             hr = insert_at_selection->InsertTextAtSelection(
                 edit_cookie,
-                TF_IAS_QUERYONLY,
-                nullptr,
                 0,
-                composition_range.GetAddressOf());
-
-            log::Write(
-                log::Level::Info,
-                "InsertTextAtSelection(TF_IAS_QUERYONLY) hr=" +
-                    Hex(static_cast<unsigned long>(hr)));
+                composition_text_.c_str(),
+                static_cast<LONG>(composition_text_.size()),
+                inserted_range.GetAddressOf());
 
             if (FAILED(hr))
                 return hr;
 
-            if (!composition_range)
+            if (!inserted_range)
             {
-                log::Write(
-                    log::Level::Error,
+                OKKHOR_LOG_ERROR(
                     "InsertTextAtSelection returned NULL range");
-
                 return E_UNEXPECTED;
             }
 
-            log::Write(
-                log::Level::Info,
-                "starting composition with ITfCompositionSink");
+            owned_range_ = std::move(inserted_range);
 
-            composition_.Reset();
+            active_context_ = context;
 
-            hr = composition_services->StartComposition(
+        }
+        else
+        {
+            // ---------------------------------------------------------------------
+            // Subsequent character: replace the exact range owned by Okkhor.
+            // ---------------------------------------------------------------------
+
+            OKKHOR_LOG_INFO(
+                "replacing existing Okkhor-owned range");
+
+            HRESULT hr = owned_range_->SetText(
                 edit_cookie,
-                composition_range.Get(),
-                this,
-                composition_.GetAddressOf());
-
-            log::Write(
-                log::Level::Info,
-                "StartComposition returned hr=" +
-                    Hex(static_cast<unsigned long>(hr)));
+                0,
+                composition_text_.c_str(),
+                static_cast<LONG>(composition_text_.size()));
 
             if (FAILED(hr))
                 return hr;
-
-            if (!composition_)
-            {
-                log::Write(
-                    log::Level::Error,
-                    "StartComposition returned S_OK but composition is NULL");
-
-                return E_FAIL;
-            }
-
-            log::Write(
-                log::Level::Info,
-                "composition started successfully");
         }
 
-        Microsoft::WRL::ComPtr<ITfRange>
-            active_range;
+        // -------------------------------------------------------------------------
+        // Clone the owned range.
+        //
+        // IMPORTANT:
+        // Do NOT collapse owned_range_ itself.
+        // We need to keep the complete range so that the next key can replace it.
+        // -------------------------------------------------------------------------
 
-        hr = composition_->GetRange(
-            active_range.GetAddressOf());
+        Microsoft::WRL::ComPtr<ITfRange> caret_range;
 
-        log::Write(
-            log::Level::Info,
-            "composition->GetRange hr=" +
-                Hex(static_cast<unsigned long>(hr)));
+        HRESULT hr = owned_range_->Clone(
+            caret_range.GetAddressOf());
 
         if (FAILED(hr))
             return hr;
 
-        if (!active_range)
+        if (!caret_range)
+        {
+            OKKHOR_LOG_ERROR(
+                "owned_range Clone returned NULL range");
             return E_UNEXPECTED;
+        }
 
-        hr = active_range->SetText(
-            edit_cookie,
-            0,
-            composition_text_.c_str(),
-            static_cast<LONG>(composition_text_.size()));
+        // -------------------------------------------------------------------------
+        // Collapse ONLY the temporary caret range to the end of our output.
+        // -------------------------------------------------------------------------
 
-        if (FAILED(hr))
-            return hr;
-
-        hr = active_range->Collapse(
+        hr = caret_range->Collapse(
             edit_cookie,
             TF_ANCHOR_END);
 
         if (FAILED(hr))
             return hr;
 
+        // -------------------------------------------------------------------------
+        // Move the application selection to the end of the committed Bangla text.
+        // -------------------------------------------------------------------------
+
         TF_SELECTION selection{};
 
-        selection.range = active_range.Get();
+        selection.range = caret_range.Get();
         selection.style.ase = TF_AE_NONE;
         selection.style.fInterimChar = FALSE;
 
@@ -787,56 +1026,38 @@ namespace okkhor_windows
         if (FAILED(hr))
             return hr;
 
-        log::Write(
-            log::Level::Info,
-            "DoCompositionUpdate completed successfully");
+        active_context_ = context;
+
+        OKKHOR_LOG_INFO(
+            "DoCompositionUpdate completed successfully; "
+            "output is committed and not underlined");
 
         return S_OK;
     }
 
+    // =============================================================================
+    // End current Okkhor word
+    // =============================================================================
+
     HRESULT OkkhorTextService::EndComposition(
-        ITfContext *context)
+        ITfContext *)
     {
-        if (!composition_)
-            return S_OK;
-
-        if (!context)
-            return E_INVALIDARG;
-
+        //
+        // There is no ITfComposition anymore.
+        //
+        // The output is already ordinary committed text.
+        //
         OKKHOR_LOG_INFO(
-            "creating End CompositionEditSession");
+            "EndComposition: releasing Okkhor-owned range");
 
-        auto *session =
-            new CompositionEditSession(
-                this,
-                context,
-                CompositionEditOperation::End);
+        ResetOkkhorState();
 
-        if (!session)
-            return E_OUTOFMEMORY;
-
-        HRESULT session_result = E_FAIL;
-
-        const HRESULT hr =
-            context->RequestEditSession(
-                client_id_,
-                session,
-                TF_ES_SYNC | TF_ES_READWRITE,
-                &session_result);
-
-        OKKHOR_LOG_INFO(
-            "End RequestEditSession returned hr=" +
-            Hex(static_cast<unsigned long>(hr)) +
-            " session_result=" +
-            Hex(static_cast<unsigned long>(session_result)));
-
-        session->Release();
-
-        if (FAILED(hr))
-            return hr;
-
-        return session_result;
+        return S_OK;
     }
+
+    // =============================================================================
+    // Request end operation
+    // =============================================================================
 
     HRESULT OkkhorTextService::DoCompositionEnd(
         ITfContext *context,
@@ -847,53 +1068,149 @@ namespace okkhor_windows
             Hex(static_cast<unsigned long>(edit_cookie)));
 
         if (!context)
+        {
             return E_INVALIDARG;
+        }
 
-        if (!composition_)
-            return S_OK;
-
-        const HRESULT hr =
-            composition_->EndComposition(
-                edit_cookie);
+        //
+        // Nothing needs to be committed because the text was already committed
+        // on every key.
+        //
+        ResetOkkhorState();
 
         OKKHOR_LOG_INFO(
-            "ITfComposition::EndComposition returned hr=" +
-            Hex(static_cast<unsigned long>(hr)));
+            "Okkhor committed state released");
 
-        if (SUCCEEDED(hr))
-        {
-            OKKHOR_LOG_INFO(
-                "TSF composition ended");
-
-            composition_.Reset();
-            active_context_.Reset();
-            composition_text_.clear();
-            latin_buffer_.clear();
-        }
-
-        return hr;
+        return S_OK;
     }
 
-    STDMETHODIMP OkkhorTextService::OnCompositionTerminated(
-        TfEditCookie edit_cookie,
-        ITfComposition *composition)
+    // =============================================================================
+    // Backspace
+    // =============================================================================
+    //
+    // Backspace means one of two different things depending on state, and we
+    // can only tell which by checking the live TSF selection — which needs
+    // an edit cookie. So this always runs inside a single edit session:
+    //
+    //   1. We're mid-composition AND the caret is still exactly where we
+    //      left it (IsOwnedRangeAtSelection): undo the last typed Latin
+    //      character and re-run transliteration, same as before.
+    //
+    //   2. Anything else — no active composition, or the caret/selection
+    //      has moved away from owned_range_ (user clicked elsewhere,
+    //      selected different text, etc.): abandon any stale composition
+    //      and perform a normal delete of whatever is actually selected,
+    //      or the character immediately before the caret.
+    //
+    HRESULT OkkhorTextService::DoBackspace(
+        ITfContext *context,
+        TfEditCookie edit_cookie)
     {
-        log::Write(
-            log::Level::Info,
-            "OnCompositionTerminated cookie=" +
-                std::to_string(edit_cookie));
-
-        if (composition_.Get() == composition)
+        if (!context)
         {
-            log::Write(
-                log::Level::Info,
-                "active composition was terminated by TSF");
-
-            composition_.Reset();
-            active_context_.Reset();
-            composition_text_.clear();
-            latin_buffer_.clear();
+            return E_INVALIDARG;
         }
+
+        if (!latin_buffer_.empty() &&
+            IsOwnedRangeAtSelection(context, edit_cookie))
+        {
+            latin_buffer_.pop_back();
+            return DoCompositionUpdate(context, edit_cookie);
+        }
+
+        ResetOkkhorState();
+        return DoDeleteSelection(context, edit_cookie);
+    }
+
+    // =============================================================================
+    // Delete current selection (or, if collapsed, the character before it)
+    // =============================================================================
+
+    HRESULT OkkhorTextService::DoDeleteSelection(
+        ITfContext *context,
+        TfEditCookie edit_cookie)
+    {
+        if (!context)
+        {
+            return E_INVALIDARG;
+        }
+
+        TF_SELECTION selection{};
+        ULONG fetched = 0;
+
+        HRESULT hr =
+            context->GetSelection(
+                edit_cookie,
+                TF_DEFAULT_SELECTION,
+                1,
+                &selection,
+                &fetched);
+
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+
+        if (fetched == 0 ||
+            !selection.range)
+        {
+            return S_OK;
+        }
+
+        // GetSelection AddRefs the range(s) it returns; take ownership here
+        // so it's released even on early return (the previous version leaked
+        // one reference on every call).
+        Microsoft::WRL::ComPtr<ITfRange> range;
+        range.Attach(selection.range);
+
+        BOOL is_empty = FALSE;
+
+        hr = range->IsEmpty(
+            edit_cookie,
+            &is_empty);
+
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+
+        if (is_empty)
+        {
+            // Nothing highlighted: a plain backspace deletes the character
+            // immediately before the caret, so extend the range one
+            // character to the left before deleting it.
+            LONG shifted = 0;
+
+            hr = range->ShiftStart(
+                edit_cookie,
+                -1,
+                &shifted,
+                nullptr);
+
+            if (FAILED(hr))
+            {
+                return hr;
+            }
+
+            if (shifted == 0)
+            {
+                // Already at the start of the document/context.
+                return S_OK;
+            }
+        }
+
+        hr = range->SetText(
+            edit_cookie,
+            0,
+            L"",
+            0);
+
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+
+        ResetOkkhorState();
 
         return S_OK;
     }
