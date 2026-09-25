@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Build and package release
+        shell: pwsh
+        run: |
+          $version = "${env:GITHUB_REF_NAME}".TrimStart("v")
+
+          powershell `
+            -ExecutionPolicy Bypass `
+            -File scripts\release.ps1 `
+            -Version $version
+
+      - name: List release artifacts
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path dist -Recurse
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Okkhor ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/OkkhorSetup-x64.exe
+            dist/okkhor-windows-x64.zip

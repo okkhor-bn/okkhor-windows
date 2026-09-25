@@ -42,10 +42,28 @@ Write-Host ''
 # ------------------------------------------------------------
 # Build
 # ------------------------------------------------------------
-Write-Step 'Building Release configuration...'
+Write-Step 'Configuring Release build...'
+
 Push-Location $repoRoot
+
 try {
-    cmake --build $buildDir --config Release
+    cmake -S $repoRoot -B $buildDir `
+        -A x64 `
+        -DOKKHOR_WINDOWS_ENABLE_LOGGING=OFF `
+        -DOKKHOR_WINDOWS_BUILD_TESTS=OFF `
+        -DOKKHOR_WINDOWS_STATIC_RUNTIME=ON
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "CMake configuration failed with exit code $LASTEXITCODE."
+    }
+
+    Write-Step 'Building Release configuration...'
+
+    cmake --build $buildDir `
+        --config Release `
+        --target okkhor_tsf `
+        --parallel
+
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed with exit code $LASTEXITCODE."
     }
@@ -53,11 +71,6 @@ try {
 finally {
     Pop-Location
 }
-
-if (-not (Test-Path -LiteralPath $dllPath)) {
-    throw "Build completed but DLL was not found: $dllPath"
-}
-
 # ------------------------------------------------------------
 # Reset dist directory
 # ------------------------------------------------------------
