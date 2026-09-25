@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 
 #include "core/engine_host.hpp"
+#include "tsf/edit_session.hpp"
 
 namespace okkhor_windows
 {
@@ -14,15 +15,10 @@ namespace okkhor_windows
 
     class OkkhorTextService
         : public ITfTextInputProcessorEx,
-          public ITfKeyEventSink,
-          public ITfCompositionSink
+          public ITfKeyEventSink
     {
     public:
         OkkhorTextService();
-
-        STDMETHODIMP OnCompositionTerminated(
-            TfEditCookie edit_cookie,
-            ITfComposition *composition) override;
 
         // -------------------------------------------------------------------------
         // IUnknown
@@ -94,7 +90,7 @@ namespace okkhor_windows
             BOOL *eaten) override;
 
         // -------------------------------------------------------------------------
-        // Composition edit-session entry points
+        // Edit-session entry points
         // -------------------------------------------------------------------------
 
         HRESULT DoCompositionUpdate(
@@ -105,9 +101,16 @@ namespace okkhor_windows
             ITfContext *context,
             TfEditCookie edit_cookie);
 
+        HRESULT DoBackspace(
+            ITfContext *context,
+            TfEditCookie edit_cookie);
+
         HRESULT DoDeleteSelection(
             ITfContext *context,
             TfEditCookie edit_cookie);
+
+        HRESULT OkkhorTextService::EndComposition(
+            ITfContext *);
 
     private:
         ~OkkhorTextService();
@@ -119,14 +122,23 @@ namespace okkhor_windows
 
         void DetachThreadManager();
 
-        HRESULT UpdateComposition(
-            ITfContext *context);
+        // Requests a single ITfEditSession for the given operation. All
+        // per-keystroke work (transliteration, range updates, deletion)
+        // happens inside the resulting DoEditSession callback, so we only
+        // ever pay for one RequestEditSession + one engine call per key.
+        HRESULT RunEditSession(
+            ITfContext *context,
+            CompositionEditOperation operation);
 
-        HRESULT EndComposition(
-            ITfContext *context);
+        // -------------------------------------------------------------------------
+        // Okkhor state
+        // -------------------------------------------------------------------------
 
-        HRESULT DeleteSelection(
-            ITfContext *context);
+        void ResetOkkhorState();
+
+        bool IsOwnedRangeAtSelection(
+            ITfContext *context,
+            TfEditCookie edit_cookie) const;
 
         LONG ref_count_;
 
@@ -147,14 +159,23 @@ namespace okkhor_windows
         EngineHost engine_;
 
         // -------------------------------------------------------------------------
-        // Current phonetic composition
+        // Current Okkhor state
         // -------------------------------------------------------------------------
 
+        // The Latin input that produced the current Bangla output.
         std::string latin_buffer_;
+
+        // Current Bangla output from Okkhor.
         std::wstring composition_text_;
 
+        // Context containing our committed Okkhor text.
         Microsoft::WRL::ComPtr<ITfContext> active_context_;
-        Microsoft::WRL::ComPtr<ITfComposition> composition_;
+
+        // Range containing the committed Bangla text currently owned by Okkhor.
+        //
+        // Unlike ITfComposition, this is ordinary committed document text.
+        // There is therefore no TSF composition underline.
+        Microsoft::WRL::ComPtr<ITfRange> owned_range_;
 
         friend class CompositionEditSession;
     };

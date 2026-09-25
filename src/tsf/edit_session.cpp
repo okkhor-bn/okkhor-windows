@@ -34,11 +34,6 @@ namespace okkhor_windows
           context_(context),
           operation_(operation)
     {
-        OKKHOR_LOG_INFO(
-            std::string("CompositionEditSession created operation=") +
-            (operation_ == CompositionEditOperation::Update
-                 ? "Update"
-                 : "End"));
     }
 
     STDMETHODIMP CompositionEditSession::QueryInterface(
@@ -86,22 +81,10 @@ namespace okkhor_windows
     STDMETHODIMP CompositionEditSession::DoEditSession(
         TfEditCookie edit_cookie)
     {
-        OKKHOR_LOG_INFO(
-            "CompositionEditSession::DoEditSession cookie=" +
-            Hex(static_cast<unsigned long>(edit_cookie)));
-
-        if (!service_)
+        if (!service_ || !context_)
         {
             OKKHOR_LOG_ERROR(
-                "CompositionEditSession has no service");
-
-            return E_UNEXPECTED;
-        }
-
-        if (!context_)
-        {
-            OKKHOR_LOG_ERROR(
-                "CompositionEditSession has no context");
+                "CompositionEditSession missing service or context");
 
             return E_UNEXPECTED;
         }
@@ -112,9 +95,6 @@ namespace okkhor_windows
         {
         case CompositionEditOperation::Update:
 
-            OKKHOR_LOG_INFO(
-                "CompositionEditSession dispatching Update");
-
             hr =
                 service_->DoCompositionUpdate(
                     context_.Get(),
@@ -122,10 +102,16 @@ namespace okkhor_windows
 
             break;
 
-        case CompositionEditOperation::End:
+        case CompositionEditOperation::Backspace:
 
-            OKKHOR_LOG_INFO(
-                "CompositionEditSession dispatching End");
+            hr =
+                service_->DoBackspace(
+                    context_.Get(),
+                    edit_cookie);
+
+            break;
+
+        case CompositionEditOperation::End:
 
             hr =
                 service_->DoCompositionEnd(
@@ -135,9 +121,13 @@ namespace okkhor_windows
             break;
 
         case CompositionEditOperation::DeleteSelection:
-            return service_->DoDeleteSelection(
-                context_.Get(),
-                edit_cookie);
+
+            hr =
+                service_->DoDeleteSelection(
+                    context_.Get(),
+                    edit_cookie);
+
+            break;
 
         default:
 
@@ -147,9 +137,12 @@ namespace okkhor_windows
             return E_UNEXPECTED;
         }
 
-        OKKHOR_LOG_INFO(
-            "CompositionEditSession completed hr=" +
-            Hex(static_cast<unsigned long>(hr)));
+        if (FAILED(hr))
+        {
+            OKKHOR_LOG_ERROR(
+                "CompositionEditSession operation failed hr=" +
+                Hex(static_cast<unsigned long>(hr)));
+        }
 
         return hr;
     }

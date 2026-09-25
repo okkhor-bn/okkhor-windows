@@ -12,6 +12,7 @@ enum class CompositionEditOperation
 {
     Update,
     End,
+    Backspace,
     DeleteSelection
 };
 
