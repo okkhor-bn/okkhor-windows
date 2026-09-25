@@ -39,7 +39,6 @@ Write-Step 'Removing previous Okkhor registration...'
 # Unregister first so upgrades (same path, new file) re-register cleanly.
 # Ignored if nothing was registered yet - this may be a first install.
 Unregister-OkkhorDll -DllPath $dllPath
-
 Write-Step 'Registering Okkhor...'
 $exitCode = Register-OkkhorDll -DllPath $dllPath
 

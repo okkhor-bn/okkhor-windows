@@ -88,21 +88,26 @@ function Unregister-OkkhorDll {
 }
 
 function Register-OkkhorDll {
-    # Registers $DllPath and returns regsvr32's exit code.
     param([string]$DllPath)
+
     if (-not (Test-Path -LiteralPath $DllPath -PathType Leaf)) {
         throw "DLL not found: $DllPath"
     }
+
     Write-Host "Registering $DllPath..."
-    $process  = Start-Process -FilePath $OkkhorRegsvr32 -ArgumentList @('/s', $DllPath) -Wait -PassThru
-    $exitCode = $process.ExitCode
+
+    & "$env:WINDIR\System32\regsvr32.exe" /s "$DllPath"
+
+    $exitCode = $LASTEXITCODE
+
     Write-Host "regsvr32 exit code: $exitCode"
+
     if ($exitCode -eq 0) {
         Write-Host 'Registration successful.' -ForegroundColor Green
     }
     else {
         Write-Warning "regsvr32 returned exit code $exitCode."
-        Write-Warning 'Verify the Okkhor keyboard appears in Windows before continuing.'
     }
+
     return $exitCode
 }
