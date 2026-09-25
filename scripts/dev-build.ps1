@@ -2,225 +2,127 @@
 #
 # Okkhor development build cycle:
 #
-#   1. Detect processes that may hold the TSF DLL
-#   2. Ask which processes to terminate
-#   3. Unregister the current TSF DLL
-#   4. Build the Debug configuration
-#   5. Register the newly built DLL
+#   1. Detect processes that may hold the TSF DLL and offer to stop them
+#   2. Build the Debug configuration (skipped if -Dll is supplied)
+#   3. Unregister the previous DLL and register the new/supplied one
 #
-# Run from the repository root:
+# Run from the repository root, as Administrator:
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\dev-build.ps1
 #
-# Run PowerShell as Administrator.
+# To skip the build and just (re)register an already-built DLL:
+#
+#   powershell -ExecutionPolicy Bypass -File scripts\dev-build.ps1 -Dll "build\Debug\okkhor_tsf.dll"
+
+param(
+    [string]$Dll
+)
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
+
+Assert-Administrator
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $buildDir = Join-Path $repoRoot 'build'
-$dllPath = Join-Path $buildDir 'Debug\okkhor_tsf.dll'
-$installScript = Join-Path $repoRoot 'scripts\install.ps1'
-$regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
 
-Write-Host ''
-Write-Host '=== Okkhor development build ==='
-Write-Host ''
-
-# ------------------------------------------------------------
-# Administrator check
-# ------------------------------------------------------------
-
-$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-$principal = New-Object Security.Principal.WindowsPrincipal($identity)
-
-if (-not $principal.IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator
-    )) {
-    throw 'Run this script from an elevated PowerShell prompt.'
+if ($Dll) {
+    $dllPath = (Resolve-Path -LiteralPath $Dll -ErrorAction Stop).Path
+}
+else {
+    $dllPath = Join-Path $buildDir 'Debug\okkhor_tsf.dll'
 }
 
+Write-Host ''
+Write-Host '=== Okkhor development build ===' -ForegroundColor Cyan
+Write-Host ''
+
 # ------------------------------------------------------------
-# Find processes that may hold the TSF DLL
+# Offer to stop processes that may hold the TSF DLL
 # ------------------------------------------------------------
-
-function Get-OkkhorProcesses {
-
-    $dllName = 'okkhor_tsf.dll'
-
-    $output = tasklist /m $dllName 2>$null
-
-    $result = @()
-
-    foreach ($line in $output) {
-
-        if ($line -match '^\s*(\S+)\s+(\d+)\s+') {
-
-            $result += [PSCustomObject]@{
-                Name = $matches[1]
-                Id   = [int]$matches[2]
-            }
-        }
-    }
-
-    return $result
-}
-
 $processes = @(Get-OkkhorProcesses)
-
 if ($processes.Count -gt 0) {
-
-    Write-Host '[0/3] Processes that may be using Okkhor:'
+    Write-Host '[1/3] Processes that may be using Okkhor:'
     Write-Host ''
-
     for ($i = 0; $i -lt $processes.Count; $i++) {
-
-        $process = $processes[$i]
-
-        Write-Host "  [$($i + 1)] $($process.ProcessName) (PID $($process.Id))"
+        Write-Host "  [$($i + 1)] $($processes[$i].Name) (PID $($processes[$i].Id))"
     }
-
     Write-Host ''
     Write-Host 'These processes can keep the TSF DLL loaded.'
     Write-Host ''
     Write-Host 'Options:'
     Write-Host '  A = Kill all'
     Write-Host '  N = Kill none'
-    Write-Host '  1..N = Kill selected processes'
+    Write-Host '  1..N = Kill selected process'
     Write-Host ''
-
     $choice = Read-Host 'Choose'
 
     if ($choice -match '^[Aa]$') {
-
-        foreach ($process in $processes) {
-
-            Write-Host `
-                "      Stopping $($process.ProcessName) (PID $($process.Id))..."
-
-            Stop-Process `
-                -Id $process.Id `
-                -Force `
-                -ErrorAction SilentlyContinue
-        }
+        Stop-OkkhorProcesses
     }
     elseif ($choice -match '^[Nn]$') {
-
         Write-Host '      No processes stopped.'
     }
     elseif ($choice -match '^[0-9]+$') {
-
         $index = [int]$choice - 1
-
         if ($index -lt 0 -or $index -ge $processes.Count) {
-
             throw 'Invalid process selection.'
         }
-
         $process = $processes[$index]
-
-        Write-Host `
-            "      Stopping $($process.ProcessName) (PID $($process.Id))..."
-
-        Stop-Process `
-            -Id $process.Id `
-            -Force `
-            -ErrorAction SilentlyContinue
+        Write-Host "      Stopping $($process.Name) (PID $($process.Id))..."
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }
     else {
-
         throw 'Invalid choice.'
     }
 
     Start-Sleep -Milliseconds 500
 }
 else {
-
-    Write-Host '[0/3] No known TSF processes are currently running.'
+    Write-Host '[1/3] No known TSF processes are currently running.'
 }
 
 # ------------------------------------------------------------
-# Unregister existing DLL
+# Build (skipped when a DLL was supplied directly)
 # ------------------------------------------------------------
-
-if (Test-Path $dllPath) {
-
+if (-not $Dll) {
     Write-Host ''
-    Write-Host '[1/3] Unregistering existing TSF DLL...'
-
-    & $regsvr32 /u /s $dllPath
-
-    if ($LASTEXITCODE -ne 0) {
-
-        Write-Warning `
-            "regsvr32 unregistration returned exit code $LASTEXITCODE."
+    Write-Host '[2/3] Building Debug configuration...'
+    Write-Host ''
+    Push-Location $repoRoot
+    try {
+        cmake --build $buildDir --config Debug
+        if ($LASTEXITCODE -ne 0) {
+            throw "Build failed with exit code $LASTEXITCODE."
+        }
     }
-    else {
+    finally {
+        Pop-Location
+    }
 
-        Write-Host '      Unregistration completed.'
+    if (-not (Test-Path -LiteralPath $dllPath)) {
+        throw "Build completed but DLL was not found: $dllPath"
     }
 }
 else {
-
     Write-Host ''
-    Write-Host '[1/3] No existing TSF DLL found. Skipping unregister.'
+    Write-Host '[2/3] Using supplied DLL, skipping build...'
+    Write-Host "      DLL: $dllPath"
 }
 
 # ------------------------------------------------------------
-# Build
+# Register
 # ------------------------------------------------------------
-
-Write-Host ''
-Write-Host '[2/3] Building Debug configuration...'
-Write-Host ''
-
-Push-Location $repoRoot
-
-try {
-
-    cmake --build $buildDir --config Debug
-
-    if ($LASTEXITCODE -ne 0) {
-
-        throw "Build failed with exit code $LASTEXITCODE."
-    }
-}
-finally {
-
-    Pop-Location
-}
-
-if (-not (Test-Path $dllPath)) {
-
-    throw "Build completed but DLL was not found: $dllPath"
-}
-
-# ------------------------------------------------------------
-# Register new DLL
-# ------------------------------------------------------------
-
 Write-Host ''
 Write-Host '[3/3] Registering new TSF DLL...'
 Write-Host ''
-
-powershell.exe `
-    -NoProfile `
-    -ExecutionPolicy Bypass `
-    -File $installScript `
-    -Dll $dllPath
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Installation failed with exit code $LASTEXITCODE."
-}
+Unregister-OkkhorDll -DllPath $dllPath
+Register-OkkhorDll -DllPath $dllPath | Out-Null
 
 Write-Host ''
-Write-Host '=== Okkhor build completed successfully ==='
+Write-Host '=== Okkhor build completed successfully ===' -ForegroundColor Green
 Write-Host ''
 Write-Host "DLL: $dllPath"
 Write-Host ''
 Write-Host 'Switch to Okkhor Phonetic and test it.'
 Write-Host ''
-
-Write-Host 'Installation complete.' -ForegroundColor Green
-Write-Host ''
-Write-Host 'Press any key to exit...'
-$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')

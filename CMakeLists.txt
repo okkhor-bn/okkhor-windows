@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-
 # ==============================================================================
 # Options
 # ==============================================================================
@@ -14,24 +13,23 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(
   OKKHOR_WINDOWS_ENABLE_LOGGING
   "Write okkhor-windows.log"
-  ON
+  OFF
 )
 
 option(
   OKKHOR_WINDOWS_STATIC_RUNTIME
-  "Link the MSVC runtime statically so the DLL needs no redistributable"
+  "Link the MSVC runtime statically"
   ON
 )
 
 option(
   OKKHOR_WINDOWS_BUILD_TESTS
-  "Build the platform-independent seam tests"
-  ON
+  "Build platform-independent seam tests"
+  OFF
 )
 
-
 # ==============================================================================
-# Runtime
+# MSVC Runtime
 # ==============================================================================
 
 if(MSVC AND OKKHOR_WINDOWS_STATIC_RUNTIME)
@@ -41,6 +39,59 @@ if(MSVC AND OKKHOR_WINDOWS_STATIC_RUNTIME)
   )
 endif()
 
+# ==============================================================================
+# Global Build Configuration
+# ==============================================================================
+
+if(MSVC)
+
+  # Common compiler settings
+  add_compile_options(
+    /utf-8
+    /EHsc
+  )
+
+  # --------------------------------------------------------------------------
+  # Release optimization
+  #
+  # /O2     Optimize for speed
+  # /GL     Whole-program optimization
+  # /Gy     Enable function-level linking
+  # /Gw     Enable data-level linking
+  # --------------------------------------------------------------------------
+
+  add_compile_options(
+    $<$<CONFIG:Release>:/O2>
+    $<$<CONFIG:Release>:/GL>
+    $<$<CONFIG:Release>:/Gy>
+    $<$<CONFIG:Release>:/Gw>
+  )
+
+  # --------------------------------------------------------------------------
+  # Release linker optimization
+  #
+  # /LTCG      Link-time code generation
+  # /OPT:REF   Remove unreferenced functions/data
+  # /OPT:ICF   Fold identical COMDATs
+  # --------------------------------------------------------------------------
+
+  add_link_options(
+    $<$<CONFIG:Release>:/LTCG>
+    $<$<CONFIG:Release>:/OPT:REF>
+    $<$<CONFIG:Release>:/OPT:ICF>
+  )
+
+else()
+
+  # GCC / Clang
+  add_compile_options(
+    $<$<CONFIG:Release>:-O3>
+    -Wall
+    -Wextra
+    -Wpedantic
+  )
+
+endif()
 
 # ==============================================================================
 # Okkhor Core
@@ -52,10 +103,11 @@ set(
 )
 
 if(NOT EXISTS "${OKKHOR_CORE_SOURCE_DIR}/CMakeLists.txt")
-  message(FATAL_ERROR
+  message(
+    FATAL_ERROR
     "okkhor-core submodule was not found.\n"
     "Initialize it with:\n"
-    "  git submodule update --init --recursive"
+    "    git submodule update --init --recursive"
   )
 endif()
 
@@ -65,21 +117,24 @@ add_subdirectory(
   EXCLUDE_FROM_ALL
 )
 
-
 # ==============================================================================
-# Core seam
+# Core Seam
 # ==============================================================================
 
-add_library(okkhor_seam STATIC
+add_library(
+  okkhor_seam
+  STATIC
   src/core/engine_host.cpp
 )
 
-target_include_directories(okkhor_seam
+target_include_directories(
+  okkhor_seam
   PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
-target_link_libraries(okkhor_seam
+target_link_libraries(
+  okkhor_seam
   PUBLIC
   okkhor_core
 )
@@ -89,26 +144,18 @@ if(MSVC)
     okkhor_seam
     PRIVATE
     /W4
-    /utf-8
-    /EHsc
-  )
-else()
-  target_compile_options(
-    okkhor_seam
-    PRIVATE
-    -Wall
-    -Wextra
   )
 endif()
 
-
 # ==============================================================================
-# TSF text service
+# TSF Text Service
 # ==============================================================================
 
 if(WIN32)
 
-  add_library(okkhor_tsf SHARED
+  add_library(
+    okkhor_tsf
+    SHARED
 
     src/app/configuration.cpp
 
@@ -124,6 +171,7 @@ if(WIN32)
     src/windows/unicode.cpp
 
     src/windows/okkhor_tsf.def
+
     src/resources/okkhor.rc
   )
 
@@ -136,7 +184,9 @@ if(WIN32)
   target_link_libraries(
     okkhor_tsf
     PRIVATE
+
     okkhor_seam
+
     ole32
     oleaut32
     uuid
@@ -148,6 +198,7 @@ if(WIN32)
   target_compile_definitions(
     okkhor_tsf
     PRIVATE
+
     UNICODE
     _UNICODE
     NOMINMAX
@@ -167,11 +218,8 @@ if(WIN32)
       okkhor_tsf
       PRIVATE
       /W4
-      /utf-8
-      /EHsc
     )
   endif()
-
 
   # --------------------------------------------------------------------------
   # Installation
@@ -190,7 +238,6 @@ if(WIN32)
   )
 
 endif()
-
 
 # ==============================================================================
 # Tests
@@ -216,8 +263,6 @@ if(OKKHOR_WINDOWS_BUILD_TESTS)
       engine_host_tests
       PRIVATE
       /W4
-      /utf-8
-      /EHsc
     )
   endif()
 
