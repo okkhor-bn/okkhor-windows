@@ -59,8 +59,6 @@ The installer will:
 4. Create the required installation files.
 5. Configure the application for normal Windows use.
 
-After installation, enable **Okkhor Phonetic** from Windows keyboard settings.
-
 The installer is the recommended method for normal users.
 
 ---
@@ -91,20 +89,8 @@ You do **not** need to download or provide a DLL manually.
 
 # Enable Okkhor Phonetic
 
-After installation, open:
-
-```text
-Settings
-→ Time & language
-→ Language & region
-→ Bangla (Bangladesh)
-→ Language options
-→ Keyboards
-→ Add a keyboard
-→ Okkhor Phonetic
-```
-
-After adding the keyboard, select **Okkhor Phonetic** from the Windows keyboard/language selector.
+After installation, select **Okkhor Phonetic** from the Windows keyboard/language selector.
+The default shortcut for windows keyboard toggle is <kbd>WIN</kbd> + <kbd>&lt;space&gt;</kbd>.
 
 You can then start typing Bangla phonetically.
 
@@ -131,16 +117,6 @@ You can continue typing naturally:
 ```text
 ami banglay likhte pari
 ```
-
-and Okkhor updates the Bangla composition as you type.
-
-### Backspace
-
-Backspace removes the most recently typed Latin input character and updates the Bangla composition accordingly.
-
-### Spaces
-
-A space commits the current composition and starts the next word.
 
 ---
 
