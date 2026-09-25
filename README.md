@@ -20,16 +20,18 @@ Okkhor integrates with Windows through the **Text Services Framework (TSF)**, so
 
 ---
 
-## Features
+# Features
 
-- Bangla phonetic typing
-- Real-time Latin-to-Bangla transliteration
-- Native Windows TSF integration
-- Works across Windows applications that support TSF
-- Backspace-aware composition editing
-- Powered by [okkhor-core](https://github.com/okkhor-bn/okkhor-core)
-- No Python, Node.js, Java, or other runtime required
-- Prebuilt releases for end users
+* Bangla phonetic typing
+* Real-time Latin-to-Bangla transliteration
+* Native Windows TSF integration
+* Works across Windows applications that support TSF
+* Backspace-aware composition editing
+* Powered by [okkhor-core](https://github.com/okkhor-bn/okkhor-core)
+* No Python, Node.js, Java, or other runtime required
+* Prebuilt releases for end users
+* Native x64 Windows installer
+* Portable ZIP release
 
 ---
 
@@ -37,16 +39,35 @@ Okkhor integrates with Windows through the **Text Services Framework (TSF)**, so
 
 ## Requirements
 
-- Windows 10 or later
-- 64-bit Windows
-- Administrator privileges
-- Internet connection for the online installer
+* Windows 10 or later
+* 64-bit Windows
+* Administrator privileges
+
+There are two recommended ways to install Okkhor.
 
 ---
 
-## Recommended Installation
+## Method 1 : Windows Installer
 
-The easiest way to install Okkhor is through the PowerShell installer.
+The easiest method is to download the latest **`OkkhorSetup-x64.exe`** from the project's GitHub Releases page.
+
+The installer will:
+
+1. Install Okkhor into the system.
+2. Install the Okkhor TSF DLL.
+3. Register the TSF component with Windows.
+4. Create the required installation files.
+5. Configure the application for normal Windows use.
+
+After installation, enable **Okkhor Phonetic** from Windows keyboard settings.
+
+The installer is the recommended method for normal users.
+
+---
+
+## Method 2 : Online PowerShell Installer
+
+Okkhor also provides a PowerShell installer that downloads the latest stable release automatically.
 
 Open **PowerShell** and run:
 
@@ -60,14 +81,15 @@ The installer will automatically:
 2. Download the latest stable Okkhor release.
 3. Install the Okkhor TSF component.
 4. Register Okkhor with Windows.
-5. Restart the required Windows components.
-6. Finish the installation.
+5. Finish the installation.
 
 You do **not** need to download or provide a DLL manually.
 
+> **Note:** This command downloads and executes a PowerShell script from the Okkhor GitHub repository. Only use it if you trust the repository.
+
 ---
 
-## Enable Okkhor Phonetic
+# Enable Okkhor Phonetic
 
 After installation, open:
 
@@ -151,16 +173,31 @@ The transliteration work itself is performed by [okkhor-core](https://github.com
 
 Prebuilt Windows binaries are distributed through GitHub Releases.
 
-A release contains the compiled Okkhor TSF component, for example:
+A normal release contains:
+
+```text
+OkkhorSetup-x64.exe
+okkhor-windows-x64.zip
+```
+
+### OkkhorSetup-x64.exe
+
+The standard Windows installer.
+
+Use this if you want a normal graphical installation.
+
+### okkhor-windows-x64.zip
+
+The portable release package.
+
+It contains the compiled TSF component:
 
 ```text
 okkhor-windows-x64.zip
 └── okkhor_tsf.dll
 ```
 
-End users normally do not need to interact with these files directly.
-
-The PowerShell installer downloads the appropriate release automatically.
+The ZIP is primarily useful for developers, advanced users, and manual installation.
 
 ---
 
@@ -192,7 +229,9 @@ The script must be run with administrator privileges.
 
 # Uninstallation
 
-Run:
+If Okkhor was installed normally, use the Windows installed-apps interface or the provided uninstaller.
+
+For a script-based uninstall:
 
 ```powershell
 .\scripts\uninstall.ps1
@@ -204,19 +243,60 @@ After uninstalling, Okkhor Phonetic will no longer appear as an available Window
 
 ---
 
-# Development
+# Development Setup
 
-## Repository Structure
+## Requirements
+
+To build Okkhor Windows from source, install:
+
+* Windows 10 or later
+* 64-bit Windows
+* Git
+* CMake 3.21 or later
+* Visual Studio with C++ desktop development tools
+* Windows SDK
+* PowerShell
+
+Inno Setup 6 is additionally required if you want to build the Windows installer.
+
+---
+
+## Clone the Repository
+
+Clone the repository with its submodules:
+
+```powershell
+git clone --recurse-submodules https://github.com/okkhor-bn/okkhor-windows.git
+cd okkhor-windows
+```
+
+If you already cloned the repository without submodules:
+
+```powershell
+git submodule update --init --recursive
+```
+
+The `okkhor-core` project is included as a Git submodule.
+
+---
+
+# Repository Structure
 
 ```text
 okkhor-windows/
 │
 ├── CMakeLists.txt
 │
+├── installer/
+│   └── okkhor.iss
+│
 ├── external/
 │   └── okkhor-core/
 │
 ├── src/
+│   ├── app/
+│   │   └── ...
+│   │
 │   ├── core/
 │   │   ├── engine_host.cpp
 │   │   └── engine_host.hpp
@@ -235,31 +315,31 @@ okkhor-windows/
 ├── tests/
 │   └── engine_host_tests.cpp
 │
-└── scripts/
-    ├── dev-build.ps1
-    ├── install.ps1
-    └── uninstall.ps1
-```
-
-`okkhor-core` is included as a Git submodule.
-
-Initialize it after cloning:
-
-```powershell
-git submodule update --init --recursive
+├── scripts/
+│   ├── common.ps1
+│   ├── dev-build.ps1
+│   ├── dev-clean.ps1
+│   ├── install.ps1
+│   ├── register.ps1
+│   ├── release.ps1
+│   └── uninstall.ps1
+│
+└── .github/
+    └── workflows/
+        └── release.yml
 ```
 
 ---
 
-## Build
+# Build
 
 Configure the project:
 
 ```powershell
-cmake -S . -B build
+cmake -S . -B build -A x64
 ```
 
-Build:
+Build the Debug configuration:
 
 ```powershell
 cmake --build build --config Debug
@@ -273,15 +353,59 @@ build\Debug\okkhor_tsf.dll
 
 ---
 
-## Run Tests
+# Release Build
 
-Build the tests:
+The release configuration uses MSVC Release optimizations including:
+
+```text
+/O2
+/GL
+/Gy
+/Gw
+/LTCG
+/OPT:REF
+/OPT:ICF
+```
+
+The release build also disables logging and tests by default and uses the static MSVC runtime.
+
+To build the release configuration manually:
+
+```powershell
+cmake -S . -B build -A x64 `
+    -DOKKHOR_WINDOWS_ENABLE_LOGGING=OFF `
+    -DOKKHOR_WINDOWS_BUILD_TESTS=OFF `
+    -DOKKHOR_WINDOWS_STATIC_RUNTIME=ON
+
+cmake --build build --config Release --target okkhor_tsf
+```
+
+The resulting DLL is:
+
+```text
+build\Release\okkhor_tsf.dll
+```
+
+The release build does not use CPU-specific options such as `/arch:AVX2` or `/arch:AVX512`, allowing the binary to target general x64 Windows systems.
+
+---
+
+# Run Tests
+
+Enable tests when configuring the project:
+
+```powershell
+cmake -S . -B build -A x64 `
+    -DOKKHOR_WINDOWS_BUILD_TESTS=ON
+```
+
+Build:
 
 ```powershell
 cmake --build build --config Debug
 ```
 
-Then run:
+Run:
 
 ```powershell
 ctest --test-dir build -C Debug --output-on-failure
@@ -291,7 +415,7 @@ The tests cover the platform-independent `EngineHost` interface and its interact
 
 ---
 
-## Developer Installation
+# Developer Installation
 
 After building the project, the local DLL can be registered with:
 
@@ -301,7 +425,101 @@ After building the project, the local DLL can be registered with:
 
 This is useful when developing the TSF implementation because you can build and immediately register the newly compiled DLL.
 
-For the normal end-user installation, use the online installer instead.
+The developer build helper can also be used to automate the build and replacement process.
+
+For normal end-user installation, use the Windows installer or online installer instead.
+
+---
+
+# Building a Release
+
+The release process is automated by:
+
+```text
+scripts\release.ps1
+```
+
+Run it locally with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1
+```
+
+A version can be supplied explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Version 1.2.0
+```
+
+The release script:
+
+1. Builds the Release configuration.
+2. Creates the portable ZIP package.
+3. Compiles the Inno Setup installer.
+4. Places all release artifacts in `dist\`.
+
+The resulting directory contains:
+
+```text
+dist/
+├── OkkhorSetup-x64.exe
+└── okkhor-windows-x64.zip
+```
+
+These files can then be uploaded to a GitHub Release.
+
+---
+
+# Automated GitHub Releases
+
+Okkhor uses GitHub Actions to build releases automatically.
+
+The workflow is located at:
+
+```text
+.github/workflows/release.yml
+```
+
+A release is triggered by pushing a version tag.
+
+For example:
+
+```powershell
+git add .
+git commit -m "Release 1.2.0"
+git push origin main
+
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The `v1.2.0` tag triggers the release workflow.
+
+GitHub Actions then:
+
+```text
+Git tag
+   │
+   ▼
+GitHub Actions
+   │
+   ├── Checkout repository
+   ├── Checkout okkhor-core submodule
+   ├── Configure CMake
+   ├── Build optimized Release DLL
+   ├── Build Inno Setup installer
+   ├── Create portable ZIP
+   └── Create GitHub Release
+```
+
+The resulting GitHub Release contains:
+
+```text
+OkkhorSetup-x64.exe
+okkhor-windows-x64.zip
+```
+
+No manual build is required for the official release.
 
 ---
 
@@ -311,18 +529,18 @@ Okkhor Windows consists of several layers:
 
 ```text
 ┌─────────────────────────────────────┐
-│            Windows Apps             │
+│             Windows Apps            │
 └──────────────────┬──────────────────┘
                    │
                    ▼
 ┌─────────────────────────────────────┐
-│      Windows Text Services          │
-│            Framework                │
+│       Windows Text Services         │
+│              Framework              │
 └──────────────────┬──────────────────┘
                    │
                    ▼
 ┌─────────────────────────────────────┐
-│        Okkhor Text Service          │
+│         Okkhor Text Service          │
 │                                     │
 │  Keyboard events / composition /    │
 │  TSF communication                  │
@@ -337,7 +555,7 @@ Okkhor Windows consists of several layers:
                    │
                    ▼
 ┌─────────────────────────────────────┐
-│           okkhor-core               │
+│            okkhor-core              │
 │                                     │
 │  Tokenization / rules / parsing /   │
 │  transliteration / rendering        │
@@ -369,7 +587,7 @@ Try restarting Windows if the keyboard does not immediately appear.
 
 Close applications that may currently be using the Okkhor TSF.
 
-The installer normally stops the relevant Windows components automatically before registering the DLL.
+The installer normally stops relevant processes before registering or replacing the DLL.
 
 If necessary, restart Windows and run the installer again.
 
@@ -391,13 +609,13 @@ If PowerShell reports an execution-policy restriction, you can run the installer
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ```
 
-For the online installer, use the command documented in the **Recommended Installation** section.
+For the online installer, use the command documented in the **Online PowerShell Installer** section.
 
 ---
 
 # Security
 
-The PowerShell installation command downloads and executes an installer script:
+The online installation command downloads and executes a PowerShell script:
 
 ```powershell
 irm https://raw.githubusercontent.com/okkhor-bn/okkhor-windows/main/scripts/install.ps1 | iex
@@ -405,15 +623,15 @@ irm https://raw.githubusercontent.com/okkhor-bn/okkhor-windows/main/scripts/inst
 
 Only run this command if you trust the Okkhor repository.
 
-For users who prefer not to execute a remote PowerShell script, download a release manually from the project's GitHub Releases page and install it using the provided installer.
+Users who prefer not to execute a remote PowerShell script can download `OkkhorSetup-x64.exe` from GitHub Releases and install Okkhor using the graphical installer.
 
 ---
 
 # Related Projects
 
-- **[okkhor-core](https://github.com/okkhor-bn/okkhor-core)** — Okkhor's platform-independent transliteration engine.
-- **[okkhor-cli](https://github.com/okkhor-bn/okkhor-cli)** — Command-line interface for Okkhor.
-- **Okkhor Android** — Android keyboard integration.
+* **[okkhor-core](https://github.com/okkhor-bn/okkhor-core)** : Okkhor's platform-independent transliteration engine.
+* **[okkhor-cli](https://github.com/okkhor-bn/okkhor-cli)** : Command-line interface for Okkhor.
+* **[okkhor-android](https://github.com/okkhor-bn/okkhor-android)** : Android keyboard integration.
 
 ---
 
@@ -425,6 +643,7 @@ Before contributing, please make sure the project builds successfully and that e
 
 ```powershell
 cmake --build build --config Debug
+
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
